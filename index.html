@@ -570,6 +570,20 @@
       color: var(--text-tertiary); padding: 0 12px 8px;
       font-family: 'JetBrains Mono', monospace;
     }
+    .rail-heading.collapsible {
+      display: flex; align-items: center; gap: 6px;
+      padding: 4px 12px;
+      cursor: pointer;
+      user-select: none;
+      border-radius: 6px;
+      transition: background 120ms, color 120ms;
+    }
+    .rail-heading.collapsible:hover { background: var(--overlay); color: var(--text-secondary); }
+    .rail-heading-arrow {
+      display: inline-block; width: 10px; font-size: 9px;
+      color: var(--text-tertiary);
+    }
+    .rail-heading.collapsed { padding-bottom: 4px; }
     .rail-item {
       display: flex; align-items: center; gap: 10px;
       padding: 9px 12px; border-radius: 10px; cursor: pointer;
@@ -626,6 +640,19 @@
     }
     .bank-card-ctx.work { background: var(--work); }
     .bank-card-ctx.personal { background: var(--personal); }
+    .bank-card-meta {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      margin-top: 6px;
+      font-family: 'JetBrains Mono', monospace; font-size: 10px;
+      color: var(--text-tertiary);
+    }
+    .bank-card-meta .due-pill {
+      padding: 1px 6px; border-radius: 4px;
+      background: rgba(255, 255, 255, 0.04);
+    }
+    .bank-card-meta .due-pill.overdue { color: #f87171; background: rgba(248, 113, 113, 0.08); }
+    .bank-card-meta .due-pill.today { color: #fbbf24; background: rgba(251, 191, 36, 0.1); }
+    .bank-card-meta .rec-pill { padding: 1px 6px; border-radius: 4px; background: rgba(124, 58, 237, 0.12); color: #c4b5fd; }
     .bank-empty {
       padding: 16px 14px; color: var(--text-tertiary);
       font-size: 12px; font-style: italic; text-align: center;
@@ -2177,6 +2204,7 @@
         tasks: e.tasks || {},
       }));
       s.ui.banner_dismissed = s.ui.banner_dismissed || {};
+      s.ui.collapsed_sections = s.ui.collapsed_sections || {};
       return s;
     }
 
@@ -3061,6 +3089,26 @@
     }
 
     // ---------- Left rail ----------
+    function isRailCollapsed(key) {
+      return !!(state.ui.collapsed_sections && state.ui.collapsed_sections[key]);
+    }
+    function toggleRailSection(key) {
+      setState(s => {
+        s.ui.collapsed_sections = s.ui.collapsed_sections || {};
+        s.ui.collapsed_sections[key] = !s.ui.collapsed_sections[key];
+      });
+    }
+    function collapsibleHeadingEl(label, key) {
+      const collapsed = isRailCollapsed(key);
+      return el('div', {
+        class: 'rail-heading collapsible' + (collapsed ? ' collapsed' : ''),
+        onClick: () => toggleRailSection(key),
+      }, [
+        el('span', { class: 'rail-heading-arrow' }, collapsed ? '▸' : '▾'),
+        el('span', {}, label),
+      ]);
+    }
+
     function renderLeftRail() {
       const rail = document.getElementById('left-rail');
       clearNode(rail);
@@ -3069,46 +3117,50 @@
 
       rail.appendChild(contextPillsEl(filter));
 
-      const pads = el('div', { class: 'rail-section' }, [
-        railItem('today', 'Today', '◉', view === 'today', { count: todayCards().length + planCards('priority', todayISO()).length }),
-        railItem('daily', 'Daily planner', '🌅', view === 'daily'),
-        railItem('weekly', 'Weekly planner', '📆', view === 'weekly'),
-        railItem('ideas', 'Ideas', '💡', view === 'ideas', { count: visibleIdeas().length }),
-        railItem('goals', 'Goals', '🎯', view === 'goals', { count: visibleGoals().length }),
-        railItem('activity', 'Activity', '📋', view === 'activity', { count: visibleActivity().length }),
-        railItem('done', 'Done', '✓', view === 'done', { count: visibleArchivedCards().length }),
-      ]);
-      rail.appendChild(pads);
+      const padsCollapsed = isRailCollapsed('pads');
+      const padsChildren = [collapsibleHeadingEl('Pages', 'pads')];
+      if (!padsCollapsed) {
+        padsChildren.push(
+          railItem('today', 'Today', '◉', view === 'today', { count: todayCards().length + planCards('priority', todayISO()).length }),
+          railItem('daily', 'Daily planner', '🌅', view === 'daily'),
+          railItem('weekly', 'Weekly planner', '📆', view === 'weekly'),
+          railItem('ideas', 'Ideas', '💡', view === 'ideas', { count: visibleIdeas().length }),
+          railItem('goals', 'Goals', '🎯', view === 'goals', { count: visibleGoals().length }),
+          railItem('activity', 'Activity', '📋', view === 'activity', { count: visibleActivity().length }),
+          railItem('done', 'Done', '✓', view === 'done', { count: visibleArchivedCards().length }),
+        );
+      }
+      rail.appendChild(el('div', { class: 'rail-section' }, padsChildren));
       rail.appendChild(el('div', { class: 'rail-divider' }));
 
       const projs = visibleProjects();
-      const projSection = el('div', { class: 'rail-section' }, [
-        el('div', { class: 'rail-heading' }, 'Projects'),
-        ...projs.map(p => projectRailItem(p, view === p.id)),
-        el('div', { class: 'rail-add', onClick: () => openNewProjectModal() }, [
+      const projCollapsed = isRailCollapsed('projects');
+      const projChildren = [collapsibleHeadingEl('Projects', 'projects')];
+      if (!projCollapsed) {
+        projs.forEach(p => projChildren.push(projectRailItem(p, view === p.id)));
+        projChildren.push(el('div', { class: 'rail-add', onClick: () => openNewProjectModal() }, [
           el('span', { class: 'rail-icon' }, '+'),
           el('span', {}, 'New project'),
-        ]),
-      ]);
-      rail.appendChild(projSection);
+        ]));
+      }
+      rail.appendChild(el('div', { class: 'rail-section' }, projChildren));
       rail.appendChild(el('div', { class: 'rail-divider' }));
 
+      const bankCollapsed = isRailCollapsed('bank');
+      const bankChildren = [collapsibleHeadingEl('Task Bank', 'bank')];
+      if (!bankCollapsed) {
+        bankChildren.push(
+          el('div', { class: 'rail-add', onClick: () => openNewBankCardModal() },
+            [ el('span', { class: 'rail-icon' }, '+'), el('span', {}, 'Add to bank') ]),
+          el('div', { class: 'rail-add', onClick: () => openEmailAnalyzeModal(), title: 'Paste email → Claude extracts tasks' },
+            [ el('span', { class: 'rail-icon' }, '📧'), el('span', {}, 'From email') ]),
+          bankListEl(),
+        );
+      }
       const bank = el('div', {
         class: 'rail-section',
-        style: { flex: '1', display: 'flex', flexDirection: 'column', minHeight: '0' },
-      }, [
-        el('div', { class: 'rail-heading' }, 'Task Bank'),
-        el('div', {
-          class: 'rail-add',
-          onClick: () => openNewBankCardModal(),
-        }, [ el('span', { class: 'rail-icon' }, '+'), el('span', {}, 'Add to bank') ]),
-        el('div', {
-          class: 'rail-add',
-          onClick: () => openEmailAnalyzeModal(),
-          title: 'Paste email → Claude extracts tasks',
-        }, [ el('span', { class: 'rail-icon' }, '📧'), el('span', {}, 'From email') ]),
-        bankListEl(),
-      ]);
+        style: bankCollapsed ? {} : { flex: '1', display: 'flex', flexDirection: 'column', minHeight: '0' },
+      }, bankChildren);
       rail.appendChild(bank);
 
       const bankList = rail.querySelector('.bank-list');
@@ -3387,8 +3439,30 @@
         class: 'bank-card',
         dataset: { cardId: c.id },
         onClick: () => openCardEditModal(c.id),
-      }, c.title);
+      }, [el('div', { class: 'bank-card-title' }, c.title)]);
       if (c.context) node.appendChild(el('span', { class: 'bank-card-ctx ' + c.context }));
+      const dueLabel = formatDueLabel(c.due);
+      const dueISO = resolveDueISO(c.due);
+      const pills = [];
+      if (dueLabel) {
+        let cls = 'due-pill';
+        const today = todayISO();
+        if (dueISO && dueISO < today) cls += ' overdue';
+        else if (dueLabel === 'Today') cls += ' today';
+        const timeLabel = formatScheduledTimeLabel(c.scheduled_time);
+        pills.push(el('span', { class: cls }, dueLabel + (timeLabel ? ' · ' + timeLabel : '')));
+      }
+      if (c.recurrence) {
+        const dayLabels = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+        const recLabel = c.recurrence === 'weekly' && typeof c.recurrence_day === 'number'
+          ? 'Weekly · ' + dayLabels[c.recurrence_day]
+          : c.recurrence.charAt(0).toUpperCase() + c.recurrence.slice(1);
+        pills.push(el('span', { class: 'rec-pill' }, '↻ ' + recLabel));
+      }
+      if (c.missed_count) {
+        pills.push(el('span', { class: 'due-pill overdue', title: 'Last missed ' + (c.last_missed_at || '') }, 'Missed × ' + c.missed_count));
+      }
+      if (pills.length) node.appendChild(el('div', { class: 'bank-card-meta' }, pills));
       return node;
     }
 
@@ -3476,6 +3550,7 @@
       let title = c.title, notes = c.notes || '', due = c.due, context = c.context, recurrence = c.recurrence;
       let recurrenceDay = typeof c.recurrence_day === 'number' ? c.recurrence_day : null;
       let duration = c.duration_minutes || '';
+      let timeHHMM = extractTimeHHMM(c.scheduled_time);
       const titleInput = el('input', { type: 'text', value: title, onInput: (e) => title = e.target.value });
       const notesArea = el('textarea', { rows: 3, value: '', onInput: (e) => notes = e.target.value, style: { minHeight: '60px' } });
       notesArea.value = notes;
@@ -3536,13 +3611,20 @@
         dayRow.appendChild(b);
       });
       refreshDayRow();
+      const timeInput = el('input', {
+        type: 'time', step: 900, value: timeHHMM,
+        onChange: (e) => { timeHHMM = e.target.value || ''; },
+        style: { padding: '4px 6px', borderRadius: '6px', background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--text-secondary)', fontSize: '11px' },
+      });
       const save = () => {
         if (!title.trim()) { titleInput.focus(); return; }
         const dur = duration === '' || duration == null ? null : parseInt(duration, 10);
+        const schedTime = composeScheduledTime(due, timeHHMM);
         updateCard(cardId, {
           title: title.trim(), notes: notes.trim(), due, context, recurrence,
           recurrence_day: recurrence === 'weekly' ? recurrenceDay : null,
           duration_minutes: (dur != null && !isNaN(dur) && dur >= 0) ? dur : null,
+          scheduled_time: schedTime,
         });
         closeModal();
       };
@@ -3565,6 +3647,11 @@
         el('div', { class: 'card-edit-row', style: { marginTop: '10px' } }, [
           el('span', { style: { fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.05em' } }, 'Due'),
           noneBtn, todayBtn, tomorrowBtn, dateInput,
+        ]),
+        el('div', { class: 'card-edit-row', style: { marginTop: '6px' } }, [
+          el('span', { style: rowLabelStyle2 }, 'At'),
+          timeInput,
+          el('span', { style: { fontSize: '11px', color: 'var(--text-tertiary)' } }, 'needs a due date'),
         ]),
         recRow,
         dayRow,
@@ -5566,9 +5653,33 @@
       return new Date(due + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
     }
 
+    function formatScheduledTimeLabel(scheduled_time) {
+      if (!scheduled_time) return '';
+      const m = scheduled_time.match(/T(\d{2}):(\d{2})/);
+      if (!m) return '';
+      const h = parseInt(m[1], 10);
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      const h12 = (h % 12) || 12;
+      return h12 + ':' + m[2] + ' ' + ampm;
+    }
+
+    function composeScheduledTime(due, timeHHMM) {
+      if (!timeHHMM || !/^\d{2}:\d{2}$/.test(timeHHMM)) return null;
+      const dateISO = resolveDueISO(due);
+      if (!dateISO) return null;
+      return dateISO + 'T' + timeHHMM + ':00';
+    }
+
+    function extractTimeHHMM(scheduled_time) {
+      if (!scheduled_time) return '';
+      const m = scheduled_time.match(/T(\d{2}):(\d{2})/);
+      return m ? m[1] + ':' + m[2] : '';
+    }
+
     function miniTodayRowEl(c) {
       const proj = c.project_id && c.project_id !== 'inbox' ? projectById(c.project_id) : null;
-      const dueLabel = formatDueLabel(c.due);
+      const timeLabel = formatScheduledTimeLabel(c.scheduled_time);
+      const dueLabel = formatDueLabel(c.due) + (timeLabel ? ' · ' + timeLabel : '');
       return el('div', {
         class: 'today-row' + (c.done_at ? ' done' : ''),
         style: { padding: '6px 4px', borderRadius: '6px', fontSize: '12px' },
@@ -5711,7 +5822,7 @@
     }
 
     function openNewBankCardModal() {
-      let title = '', notes = '', due = null, recurrence = null, duration = '';
+      let title = '', notes = '', due = null, recurrence = null, duration = '', timeHHMM = '';
       const filter = state.ui.context_filter;
       let context = filter !== 'all' ? filter : 'work';
       const titleInput = el('input', {
@@ -5726,6 +5837,11 @@
         ctxToggle.querySelector('.' + ctx).classList.add('active');
       });
       const dateInput = el('input', { type: 'date', onChange: (e) => { if (e.target.value) { due = e.target.value; refreshDue(); } } });
+      const timeInput = el('input', {
+        type: 'time', step: 900, placeholder: 'HH:MM',
+        onChange: (e) => { timeHHMM = e.target.value || ''; },
+        style: { padding: '4px 6px', borderRadius: '6px', background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--text-secondary)', fontSize: '11px' },
+      });
       const btnNone = el('button', { class: 'due-opt selected', onClick: () => { due = null; dateInput.value = ''; refreshDue(); } }, 'none');
       const btnToday = el('button', { class: 'due-opt', onClick: () => { due = 'today'; dateInput.value = ''; refreshDue(); } }, 'today');
       const btnTomorrow = el('button', { class: 'due-opt', onClick: () => { due = 'tomorrow'; dateInput.value = ''; refreshDue(); } }, 'tomorrow');
@@ -5771,6 +5887,7 @@
         }
         const id = uid('card');
         const dur = duration === '' || duration == null ? null : parseInt(duration, 10);
+        const schedTime = composeScheduledTime(due, timeHHMM);
         setState(s => {
           const pos = s.cards.filter(c => c.project_id === 'inbox').length;
           s.cards.push({
@@ -5780,7 +5897,7 @@
             context: context || null, done_at: null, archived: false,
             recurrence: recurrence || null,
             duration_minutes: (dur != null && !isNaN(dur) && dur >= 0) ? dur : null,
-            scheduled_time: null,
+            scheduled_time: schedTime,
             created_at: now(),
           });
           logActivity('card_created', 'Added task "' + t + '" to bank', { source_type: 'card', source_id: id, context });
@@ -5797,6 +5914,11 @@
         el('div', { class: 'card-edit-row' }, [
           el('span', { style: rowLabelStyle }, 'Due'),
           btnNone, btnToday, btnTomorrow, dateInput,
+        ]),
+        el('div', { class: 'card-edit-row', style: { marginTop: '6px' } }, [
+          el('span', { style: rowLabelStyle }, 'At'),
+          timeInput,
+          el('span', { style: { fontSize: '11px', color: 'var(--text-tertiary)' } }, 'needs a due date'),
         ]),
         recRow,
         el('div', { class: 'modal-label', style: { marginTop: '10px' } }, 'Estimated duration (optional)'),
