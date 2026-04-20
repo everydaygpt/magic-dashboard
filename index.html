@@ -1289,6 +1289,35 @@
     }
     .rail-panel-head .icon-btn { width: 22px; height: 22px; font-size: 12px; }
 
+    .team-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .team-chip {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 3px 4px 3px 10px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 12px; color: var(--text-primary);
+    }
+    .team-chip-name { line-height: 1.2; }
+    .team-chip-x {
+      width: 18px; height: 18px;
+      display: inline-flex; align-items: center; justify-content: center;
+      border-radius: 50%;
+      color: var(--text-tertiary); background: transparent;
+      border: 0; cursor: pointer; font-size: 13px;
+    }
+    .team-chip-x:hover { color: var(--text-primary); background: rgba(255, 255, 255, 0.08); }
+    .team-add-input {
+      flex: 1; min-width: 120px;
+      padding: 4px 10px;
+      background: transparent;
+      border: 1px dashed var(--border);
+      border-radius: 999px;
+      color: var(--text-primary); font-size: 12px;
+    }
+    .team-add-input::placeholder { color: var(--text-tertiary); }
+    .team-add-input:focus { outline: none; border-style: solid; border-color: var(--border-strong); }
+
     .notes-list { display: flex; flex-direction: column; gap: 8px; }
     .note {
       background: linear-gradient(135deg,
@@ -2014,7 +2043,7 @@
     function migrateState(s) {
       if (!s || typeof s !== 'object') return defaultState();
       if (s.version !== 1) return defaultState();
-      s.projects = (s.projects || []).map(p => ({ ...p, context: p.context || 'work' }));
+      s.projects = (s.projects || []).map(p => ({ ...p, context: p.context || 'work', people: Array.isArray(p.people) ? p.people : [] }));
       s.ideas = (s.ideas || []).map(i => ({
         ...i,
         context: i.context || 'work',
@@ -2264,7 +2293,7 @@
         { id: uid('col'), name: 'Done' },
       ];
       setState(s => {
-        s.projects.push({ id, name, accent, context, columns: cols, created_at: now() });
+        s.projects.push({ id, name, accent, context, people: [], columns: cols, created_at: now() });
         s.ui.active_view = id;
         logActivity('project_created', 'Created project "' + name + '"', { project_id: id, context });
       });
@@ -2280,6 +2309,24 @@
     }
     function changeProjectContext(pid, context) {
       setState(s => { const p = s.projects.find(x => x.id === pid); if (p) p.context = context; });
+    }
+    function addProjectPerson(pid, name) {
+      const n = (name || '').trim();
+      if (!n) return;
+      setState(s => {
+        const p = s.projects.find(x => x.id === pid);
+        if (!p) return;
+        p.people = Array.isArray(p.people) ? p.people : [];
+        if (p.people.some(x => x.toLowerCase() === n.toLowerCase())) return;
+        p.people.push(n);
+      });
+    }
+    function removeProjectPerson(pid, name) {
+      setState(s => {
+        const p = s.projects.find(x => x.id === pid);
+        if (!p || !Array.isArray(p.people)) return;
+        p.people = p.people.filter(x => x !== name);
+      });
     }
 
     function deleteProject(id, mode) {
@@ -3487,12 +3534,12 @@
         if (c.archived) return false;
         if (c.scheduled_time) return false;
         if (!contextMatches(contextOf(c, 'card'))) return false;
-        if (plannerTaskIds.includes(c.id)) return true;
-        if (!c.due) return false;
-        if (c.project_id === 'inbox' || c.today_slot) {
-          // Planner-sourced or top3 cards tied to this date — include
-          if (cardDueOnDate(c, currentPlanDate)) return true;
+        if (plannerTaskIds.includes(c.id)) {
+          // Planner-linked only count if undated or dated to this view's date
+          if (!c.due || cardDueOnDate(c, currentPlanDate)) return true;
+          return false;
         }
+        if (!c.due) return false;
         if (cardDueOnDate(c, currentPlanDate)) return true;
         return false;
       });
@@ -5173,6 +5220,8 @@
       // Project-scoped sections below
       const proj = projectById(view);
       if (proj) {
+        rail.appendChild(renderTeamPanel(proj));
+
         const notes = notesForProject(proj.id);
         const notesPanel = el('div', { class: 'rail-panel' }, [
           el('div', { class: 'rail-panel-head' }, [
@@ -5215,12 +5264,14 @@
 
     function renderMiniTodayList(entry) {
       const taskIds = plannerLinkedCardIds(entry);
-      const plannerCards = state.cards.filter(c => taskIds.includes(c.id));
       const today = todayISO();
+      const ctxOk = (c) => contextMatches(contextOf(c, 'card'));
+      const plannerCards = state.cards.filter(c => taskIds.includes(c.id) && ctxOk(c) && (isDueToday(c) || !c.due));
       const otherDueCards = state.cards.filter(c => {
         if (taskIds.includes(c.id)) return false;
         if (c.archived && !c.done_at) return false;
         if (c.archived && c.done_at && c.done_at.slice(0, 10) !== today) return false;
+        if (!ctxOk(c)) return false;
         return isDueToday(c);
       });
       const all = [...plannerCards, ...otherDueCards];
@@ -5265,6 +5316,38 @@
           ]) : null,
         ]),
       ]);
+    }
+
+    function renderTeamPanel(proj) {
+      const people = Array.isArray(proj.people) ? proj.people : [];
+      const panel = el('div', { class: 'rail-panel' });
+      panel.appendChild(el('div', { class: 'rail-panel-head' }, [
+        el('div', { class: 'rail-panel-title' }, 'Team'),
+      ]));
+      const chipsWrap = el('div', { class: 'team-chips' });
+      people.forEach(name => {
+        chipsWrap.appendChild(el('span', { class: 'team-chip' }, [
+          el('span', { class: 'team-chip-name' }, name),
+          el('button', {
+            class: 'team-chip-x',
+            title: 'Remove ' + name,
+            onClick: () => removeProjectPerson(proj.id, name),
+          }, '×'),
+        ]));
+      });
+      const addInput = el('input', {
+        type: 'text',
+        placeholder: '+ Add person',
+        class: 'team-add-input',
+        onKeydown: (e) => {
+          if (e.key === 'Enter' && e.target.value.trim()) {
+            addProjectPerson(proj.id, e.target.value.trim());
+          }
+        },
+      });
+      chipsWrap.appendChild(addInput);
+      panel.appendChild(chipsWrap);
+      return panel;
     }
 
     function noteEl(n) {
@@ -5356,7 +5439,7 @@
     }
 
     function openNewBankCardModal() {
-      let title = '', notes = '', due = null;
+      let title = '', notes = '', due = null, recurrence = null, duration = '';
       const filter = state.ui.context_filter;
       let context = filter !== 'all' ? filter : 'work';
       const titleInput = el('input', {
@@ -5370,28 +5453,65 @@
         ctxToggle.querySelectorAll('button').forEach(b => b.classList.remove('active'));
         ctxToggle.querySelector('.' + ctx).classList.add('active');
       });
-      const dateInput = el('input', { type: 'date', onChange: (e) => { if (e.target.value) { due = e.target.value; refresh(); } } });
-      const btnNone = el('button', { class: 'due-opt selected', onClick: () => { due = null; dateInput.value = ''; refresh(); } }, 'none');
-      const btnToday = el('button', { class: 'due-opt', onClick: () => { due = 'today'; dateInput.value = ''; refresh(); } }, 'today');
-      const btnTomorrow = el('button', { class: 'due-opt', onClick: () => { due = 'tomorrow'; dateInput.value = ''; refresh(); } }, 'tomorrow');
-      const refresh = () => {
+      const dateInput = el('input', { type: 'date', onChange: (e) => { if (e.target.value) { due = e.target.value; refreshDue(); } } });
+      const btnNone = el('button', { class: 'due-opt selected', onClick: () => { due = null; dateInput.value = ''; refreshDue(); } }, 'none');
+      const btnToday = el('button', { class: 'due-opt', onClick: () => { due = 'today'; dateInput.value = ''; refreshDue(); } }, 'today');
+      const btnTomorrow = el('button', { class: 'due-opt', onClick: () => { due = 'tomorrow'; dateInput.value = ''; refreshDue(); } }, 'tomorrow');
+      const refreshDue = () => {
         btnNone.classList.toggle('selected', due == null);
         btnToday.classList.toggle('selected', due === 'today');
         btnTomorrow.classList.toggle('selected', due === 'tomorrow');
       };
+      const recRow = el('div', { class: 'card-edit-row' });
+      const mkRec = (val, label) => {
+        const b = el('button', { class: 'due-opt' + (recurrence === val ? ' selected' : ''), onClick: () => {
+          recurrence = val;
+          recRow.querySelectorAll('.due-opt').forEach(x => x.classList.remove('selected'));
+          b.classList.add('selected');
+        } }, label);
+        return b;
+      };
+      const rowLabelStyle = { fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.05em' };
+      recRow.appendChild(el('span', { style: rowLabelStyle }, 'Recurs'));
+      recRow.appendChild(mkRec(null, 'never'));
+      recRow.appendChild(mkRec('daily', 'daily'));
+      recRow.appendChild(mkRec('weekly', 'weekly'));
+      recRow.appendChild(mkRec('monthly', 'monthly'));
+      const durationInput = el('input', {
+        type: 'number', min: '0', step: '5', placeholder: 'Optional — minutes',
+        onInput: (e) => duration = e.target.value,
+      });
       const submit = () => {
-        if (!title.trim()) { titleInput.focus(); return; }
+        const t = title.trim();
+        if (!t) { titleInput.focus(); return; }
+        const existing = findLiveCardByTitle(t);
+        if (existing) {
+          Object.assign(existing, {
+            notes: existing.notes || notes.trim() || '',
+            due: existing.due || due,
+            context: existing.context || context || null,
+            recurrence: existing.recurrence || recurrence || null,
+            duration_minutes: existing.duration_minutes || (duration === '' ? null : parseInt(duration, 10) || null),
+          });
+          setState(() => {});
+          closeModal();
+          return;
+        }
         const id = uid('card');
+        const dur = duration === '' || duration == null ? null : parseInt(duration, 10);
         setState(s => {
           const pos = s.cards.filter(c => c.project_id === 'inbox').length;
           s.cards.push({
             id, project_id: 'inbox', column_id: null, position: pos,
-            title: title.trim(), notes: notes.trim(), due,
+            title: t, notes: notes.trim(), due,
             today_slot: null, today_position: 0, plan_date: null,
             context: context || null, done_at: null, archived: false,
-            recurrence: null, created_at: now(),
+            recurrence: recurrence || null,
+            duration_minutes: (dur != null && !isNaN(dur) && dur >= 0) ? dur : null,
+            scheduled_time: null,
+            created_at: now(),
           });
-          logActivity('card_created', 'Added task "' + title.trim() + '" to bank', { source_type: 'card', source_id: id, context });
+          logActivity('card_created', 'Added task "' + t + '" to bank', { source_type: 'card', source_id: id, context });
         });
         soundAdd();
         closeModal();
@@ -5403,9 +5523,12 @@
         el('div', { class: 'modal-label' }, 'Context'),
         ctxToggle,
         el('div', { class: 'card-edit-row' }, [
-          el('span', { style: { fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.05em' } }, 'Due'),
+          el('span', { style: rowLabelStyle }, 'Due'),
           btnNone, btnToday, btnTomorrow, dateInput,
         ]),
+        recRow,
+        el('div', { class: 'modal-label', style: { marginTop: '10px' } }, 'Estimated duration (optional)'),
+        durationInput,
         el('div', { class: 'modal-actions' }, [
           el('button', { onClick: closeModal }, 'Cancel'),
           el('button', { class: 'primary', onClick: submit }, 'Add'),
@@ -5519,7 +5642,7 @@
         const col1 = uid('col');
         setState(s => {
           s.projects.push({
-            id: newProjId, name: title, accent, context,
+            id: newProjId, name: title, accent, context, people: [],
             columns: [
               { id: col1, name: 'Today' },
               { id: uid('col'), name: 'Doing' },
