@@ -742,6 +742,87 @@
       background: rgba(255, 255, 255, 0.03); color: var(--text-primary); border-color: var(--border-strong);
     }
 
+    /* ---------- Today schedule (hourly timeline) ---------- */
+    .schedule {
+      background: rgba(18, 18, 36, 0.4);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    .schedule-row {
+      display: grid;
+      grid-template-columns: 70px 1fr;
+      border-top: 1px solid var(--border);
+      min-height: 44px;
+    }
+    .schedule-row:first-child { border-top: 0; }
+    .schedule-row.now { background: rgba(96, 165, 250, 0.06); }
+    .schedule-hour {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--text-tertiary);
+      padding: 8px 10px;
+      border-right: 1px solid var(--border);
+      display: flex; align-items: flex-start;
+    }
+    .schedule-slot {
+      padding: 4px 6px;
+      display: flex; flex-direction: column; gap: 4px;
+      min-height: 44px;
+      transition: background 120ms;
+    }
+    .schedule-slot.sortable-hover,
+    .schedule-slot:hover { background: var(--overlay); }
+    .schedule-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 12px;
+      cursor: grab;
+      display: flex; align-items: center; gap: 8px;
+      transition: background 120ms;
+    }
+    .schedule-card:hover { background: var(--card-hover); }
+    .schedule-card.done { opacity: 0.55; text-decoration: line-through; }
+    .schedule-card-check {
+      width: 14px; height: 14px; flex-shrink: 0;
+      border: 1.5px solid var(--border-strong);
+      border-radius: 4px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; color: transparent;
+    }
+    .schedule-card.done .schedule-card-check {
+      background: linear-gradient(135deg, var(--accent-from), var(--accent-to));
+      border-color: transparent; color: white;
+    }
+    .schedule-card-title { flex: 1; line-height: 1.3; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .schedule-card-dur {
+      font-family: 'JetBrains Mono', monospace; font-size: 10px;
+      color: var(--text-tertiary);
+      padding: 1px 5px; background: rgba(255, 255, 255, 0.04);
+      border-radius: 4px; white-space: nowrap;
+    }
+    .schedule-card-proj {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--item-from, #7c3aed), var(--item-to, #ec4899));
+      flex-shrink: 0;
+    }
+
+    .unscheduled-pool {
+      background: rgba(18, 18, 36, 0.4);
+      border: 1px dashed var(--border);
+      border-radius: 14px;
+      padding: 10px;
+      min-height: 60px;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .unscheduled-pool:empty + .unscheduled-empty { display: block; }
+    .unscheduled-empty {
+      padding: 14px; color: var(--text-tertiary);
+      font-size: 12px; font-style: italic; text-align: center;
+    }
+
     /* ---------- Today plan ---------- */
     .plan-wrap { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
     .plan-section-title {
@@ -1318,11 +1399,47 @@
     const STORAGE_KEY = 'cmd_state_v1';
     const SAVE_DEBOUNCE = 300;
     const PW_HASH = '387c287d2b18fc5dd1beb2b931e2901a34d5dfc6689e4f2eeec3c7a0cf0ea0bd';
+    // Baked encrypted PAT for cross-device sync. Encrypted with the password via AES-GCM.
+    // Paste the output of Settings → "Bake PAT for other devices" here.
+    const BAKED_PAT_ENCRYPTED = '';
 
     async function sha256(str) {
       const buf = new TextEncoder().encode(str);
       const hash = await crypto.subtle.digest('SHA-256', buf);
       return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    const PBKDF2_SALT = 'cmd-sync-salt-v1';
+    async function deriveKeyFromPassword(password) {
+      const enc = new TextEncoder();
+      const material = await crypto.subtle.importKey(
+        'raw', enc.encode(password), { name: 'PBKDF2' }, false, ['deriveKey']
+      );
+      return crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt: enc.encode(PBKDF2_SALT), iterations: 100000, hash: 'SHA-256' },
+        material,
+        { name: 'AES-GCM', length: 256 },
+        false, ['encrypt', 'decrypt']
+      );
+    }
+    function bytesToB64(bytes) { return btoa(String.fromCharCode(...bytes)); }
+    function b64ToBytes(s) { return Uint8Array.from(atob(s), c => c.charCodeAt(0)); }
+
+    async function encryptWithPassword(plaintext, password) {
+      const key = await deriveKeyFromPassword(password);
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const ct = await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv }, key, new TextEncoder().encode(plaintext)
+      );
+      return bytesToB64(iv) + ':' + bytesToB64(new Uint8Array(ct));
+    }
+    async function decryptWithPassword(encrypted, password) {
+      const [ivB64, ctB64] = encrypted.split(':');
+      const iv = b64ToBytes(ivB64);
+      const ct = b64ToBytes(ctB64);
+      const key = await deriveKeyFromPassword(password);
+      const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
+      return new TextDecoder().decode(pt);
     }
     async function requireAuth() {
       const gate = document.getElementById('auth-gate');
@@ -1336,9 +1453,17 @@
         const btn = document.getElementById('auth-submit');
         const go = async () => {
           err.textContent = '';
-          const h = await sha256(input.value);
+          const pw = input.value;
+          const h = await sha256(pw);
           if (h === PW_HASH) {
             sessionStorage.setItem('cmd_auth', '1');
+            // If a baked PAT exists and no local PAT, decrypt and save
+            if (BAKED_PAT_ENCRYPTED && !localStorage.getItem('cmd_gh_pat')) {
+              try {
+                const pat = await decryptWithPassword(BAKED_PAT_ENCRYPTED, pw);
+                localStorage.setItem('cmd_gh_pat', pat);
+              } catch (e) { console.warn('Baked PAT decrypt failed', e); }
+            }
             gate.style.display = 'none';
             resolve(true);
           } else {
@@ -1659,8 +1784,44 @@
         context: null,
         done_at: null, archived: false,
         recurrence: null,
+        duration_minutes: null,
+        scheduled_time: null,
         created_at: now(),
       };
+    }
+
+    function parseDueFromText(text) {
+      if (!text) return null;
+      const lower = text.toLowerCase();
+      if (/\btoday\b/.test(lower)) return 'today';
+      if (/\btomorrow\b/.test(lower)) return 'tomorrow';
+      const dowMatch = lower.match(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/);
+      if (dowMatch) {
+        const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+        const target = days.indexOf(dowMatch[1]);
+        const now_ = new Date(); const dow = now_.getDay();
+        let diff = target - dow;
+        if (diff <= 0) diff += 7;
+        const d = new Date(now_); d.setDate(d.getDate() + diff); d.setHours(0, 0, 0, 0);
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      }
+      const mdy = text.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
+      if (mdy) {
+        const month = parseInt(mdy[1], 10); const day = parseInt(mdy[2], 10);
+        let year = mdy[3] ? parseInt(mdy[3], 10) : new Date().getFullYear();
+        if (year < 100) year += 2000;
+        if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+        return year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+      }
+      return null;
+    }
+
+    function formatDuration(minutes) {
+      if (!minutes) return '';
+      if (minutes < 60) return minutes + 'm';
+      const h = Math.floor(minutes / 60);
+      const m = minutes % 60;
+      return m ? h + 'h ' + m + 'm' : h + 'h';
     }
 
     function migrateState(s) {
@@ -1704,6 +1865,8 @@
         archived: c.archived === true,
         recurrence: c.recurrence || null,
         source: c.source || null,
+        duration_minutes: c.duration_minutes == null ? null : c.duration_minutes,
+        scheduled_time: c.scheduled_time || null,
       }));
       s.activity_log = s.activity_log || [];
       s.notes = s.notes || [];
@@ -2234,11 +2397,9 @@
     const WEEKLY_RESPONSIBILITIES = [
       ['resp_significant_other', 'Significant other'],
       ['resp_children', 'Children'],
-      ['resp_parents', 'Parents'],
       ['resp_friends', 'Friends'],
       ['resp_finances', 'Finances'],
       ['resp_health', 'Health'],
-      ['resp_faith', 'Faith'],
       ['resp_work', 'Work'],
       ['resp_others', 'Others'],
       ['resp_personal_dev', 'Personal development'],
@@ -2390,6 +2551,32 @@
     }
 
     // ---------- Plan ops ----------
+    function scheduleCardAt(cardId, dateIso, hour) {
+      setState(s => {
+        const c = s.cards.find(x => x.id === cardId);
+        if (!c) return;
+        const t = new Date(dateIso + 'T00:00:00');
+        t.setHours(hour, 0, 0, 0);
+        c.scheduled_time = t.toISOString();
+      });
+    }
+    function unscheduleCard(cardId) {
+      setState(s => {
+        const c = s.cards.find(x => x.id === cardId);
+        if (c) c.scheduled_time = null;
+      });
+    }
+    function scheduledOnDate(dateIso) {
+      return state.cards.filter(c => {
+        if (!c.scheduled_time || c.archived) return false;
+        return c.scheduled_time.slice(0, 10) === dateIso;
+      });
+    }
+    function hourOfScheduled(c) {
+      if (!c.scheduled_time) return null;
+      return new Date(c.scheduled_time).getHours();
+    }
+
     function addCardToPlan(cardId, slot, planDate) {
       const date = planDate || currentPlanDate;
       setState(s => {
@@ -2643,13 +2830,48 @@
         },
       }, 'Disconnect') : null;
 
+      const bakeBtn = currentPat ? el('button', {
+        onClick: async () => {
+          const pw = prompt('Enter your dashboard password so I can encrypt the PAT for other devices:');
+          if (!pw) return;
+          const h = await sha256(pw);
+          if (h !== PW_HASH) { alert('Wrong password.'); return; }
+          try {
+            const encrypted = await encryptWithPassword(currentPat, pw);
+            const out = el('textarea', {
+              style: { width: '100%', minHeight: '80px', fontFamily: 'JetBrains Mono, monospace', fontSize: '11px' },
+              readonly: true,
+            });
+            out.value = encrypted;
+            const copyBtn = el('button', {
+              onClick: () => { navigator.clipboard.writeText(encrypted); copyBtn.textContent = 'Copied'; setTimeout(() => copyBtn.textContent = 'Copy', 1200); },
+            }, 'Copy');
+            closeModal();
+            openModal([
+              el('h3', {}, 'Bake PAT for all devices'),
+              el('p', {}, 'Paste this string into your index.html at the top of the <script> block:'),
+              el('div', { style: { fontFamily: 'JetBrains Mono, monospace', fontSize: '11px', padding: '8px', background: 'var(--overlay)', borderRadius: '6px', marginBottom: '10px' } },
+                "const BAKED_PAT_ENCRYPTED = '…paste below…';"),
+              out,
+              el('div', { style: { display: 'flex', gap: '6px', marginTop: '6px' } }, [copyBtn]),
+              el('p', { style: { fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '12px' } },
+                'After pasting, redeploy. Every device that unlocks with your password will auto-connect to the sync gist. The encrypted blob is useless without your password.'),
+              el('div', { class: 'modal-actions' }, [el('button', { onClick: closeModal }, 'Close')]),
+            ]);
+            setTimeout(() => { out.select(); }, 50);
+          } catch (e) {
+            alert('Encryption failed: ' + e.message);
+          }
+        },
+      }, 'Bake for all devices') : null;
+
       openModal([
         el('h3', {}, 'Settings'),
         el('div', { class: 'modal-label' }, 'Cloud sync — GitHub Gist'),
         statusLine,
         el('p', { style: { fontSize: '12px' } }, 'Paste a fine-grained PAT with gist scope. State is stored as a private gist named cmd-state.json. Each device that uses the same PAT syncs to the same gist.'),
         patInput,
-        el('div', { style: { display: 'flex', gap: '6px', marginTop: '4px', marginBottom: '18px' } }, [connectBtn, disconnectBtn].filter(Boolean)),
+        el('div', { style: { display: 'flex', gap: '6px', marginTop: '4px', marginBottom: '18px', flexWrap: 'wrap' } }, [connectBtn, disconnectBtn, bakeBtn].filter(Boolean)),
 
         el('div', { class: 'modal-label' }, 'Manual export / import'),
         el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '18px' } }, [
@@ -2719,6 +2941,7 @@
       const c = state.cards.find(x => x.id === cardId);
       if (!c) return;
       let title = c.title, notes = c.notes || '', due = c.due, context = c.context, recurrence = c.recurrence;
+      let duration = c.duration_minutes || '';
       const titleInput = el('input', { type: 'text', value: title, onInput: (e) => title = e.target.value });
       const notesArea = el('textarea', { rows: 3, value: '', onInput: (e) => notes = e.target.value, style: { minHeight: '60px' } });
       notesArea.value = notes;
@@ -2761,9 +2984,18 @@
       recRow.appendChild(mkRec('monthly', 'monthly'));
       const save = () => {
         if (!title.trim()) { titleInput.focus(); return; }
-        updateCard(cardId, { title: title.trim(), notes: notes.trim(), due, context, recurrence });
+        const dur = duration === '' || duration == null ? null : parseInt(duration, 10);
+        updateCard(cardId, {
+          title: title.trim(), notes: notes.trim(), due, context, recurrence,
+          duration_minutes: (dur != null && !isNaN(dur) && dur >= 0) ? dur : null,
+        });
         closeModal();
       };
+      const durationInput = el('input', {
+        type: 'number', min: '0', step: '5', placeholder: 'Optional — minutes',
+        value: duration,
+        onInput: (e) => duration = e.target.value,
+      });
       const del = () => {
         if (!confirm('Delete "' + c.title + '"?')) return;
         deleteCard(cardId);
@@ -2780,6 +3012,8 @@
           noneBtn, todayBtn, tomorrowBtn, dateInput,
         ]),
         recRow,
+        el('div', { class: 'modal-label', style: { marginTop: '10px' } }, 'Estimated duration (optional)'),
+        durationInput,
         el('div', { class: 'modal-actions' }, [
           el('button', { class: 'danger', onClick: del }, 'Delete'),
           el('div', { style: { flex: 1 } }),
@@ -2847,51 +3081,93 @@
         top3,
       ]));
 
-      // Time blocks
-      const blocks = el('div', { class: 'time-blocks' });
-      TIME_BLOCKS.forEach(b => blocks.appendChild(timeBlockEl(b)));
+      // Hourly schedule (5 AM - midnight)
+      const schedule = el('div', { class: 'schedule' });
+      const scheduled = scheduledOnDate(currentPlanDate);
+      const nowHour = isToday ? new Date().getHours() : -1;
+      for (let h = 5; h <= 23; h++) {
+        const row = el('div', { class: 'schedule-row' + (h === nowHour ? ' now' : '') });
+        const label = new Date(2000, 0, 1, h).toLocaleTimeString(undefined, { hour: 'numeric' });
+        row.appendChild(el('div', { class: 'schedule-hour' }, label));
+        const slot = el('div', {
+          class: 'schedule-slot',
+          dataset: { scheduleHour: String(h) },
+        });
+        scheduled
+          .filter(c => hourOfScheduled(c) === h)
+          .forEach(c => slot.appendChild(scheduleCardEl(c)));
+        row.appendChild(slot);
+        schedule.appendChild(row);
+      }
       wrap.appendChild(el('div', {}, [
-        el('div', { class: 'plan-section-title' }, [el('span', {}, 'Time blocks')]),
-        blocks,
+        el('div', { class: 'plan-section-title' }, [
+          el('span', {}, 'Schedule'),
+          el('span', { class: 'count' }, scheduled.length + ' scheduled'),
+          el('div', { class: 'spacer' }),
+          el('button', {
+            class: 'text-btn',
+            title: 'Clear all scheduled times for this day',
+            onClick: () => {
+              if (!confirm('Remove scheduled times for all ' + scheduled.length + ' cards?')) return;
+              setState(s => { scheduled.forEach(c => { const cc = s.cards.find(x => x.id === c.id); if (cc) cc.scheduled_time = null; }); });
+            },
+          }, 'Unschedule all'),
+        ]),
+        schedule,
       ]));
 
-      // Also due (filtered to the current plan date)
+      // Hook up Sortable for cross-hour and pool drag
+      setTimeout(() => {
+        const slots = wrap.querySelectorAll('.schedule-slot, .unscheduled-pool');
+        slots.forEach(s => {
+          Sortable.create(s, {
+            group: { name: 'schedule', pull: true, put: true },
+            animation: 160,
+            easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+            onEnd: (evt) => {
+              const cardId = evt.item.dataset.cardId;
+              if (!cardId) return;
+              if (evt.to.classList.contains('unscheduled-pool')) {
+                unscheduleCard(cardId);
+              } else {
+                const h = parseInt(evt.to.dataset.scheduleHour, 10);
+                if (!isNaN(h)) scheduleCardAt(cardId, currentPlanDate, h);
+              }
+            },
+          });
+        });
+      }, 0);
+
+      // Unscheduled pool: cards for this date that don't have a scheduled_time yet
+      const todayEntryForDate = plannerEntry('daily', currentPlanDate);
+      const plannerTaskIds = todayEntryForDate ? Object.values(todayEntryForDate.tasks || {}).filter(Boolean) : [];
       const due = state.cards.filter(c => {
-        if (c.project_id === 'inbox' || c.archived) return false;
+        if (c.archived) return false;
+        if (c.scheduled_time) return false;
         if (!contextMatches(contextOf(c, 'card'))) return false;
-        if (c.today_slot && c.plan_date === currentPlanDate) return false;
+        if (plannerTaskIds.includes(c.id)) return true;
         if (!c.due) return false;
-        if (isToday && (c.due === 'today' || c.due === todayISO())) return true;
-        if (isTomorrow && (c.due === 'tomorrow' || c.due === tomorrowISO())) return true;
-        if (!isToday && !isTomorrow && c.due === currentPlanDate) return true;
+        if (c.project_id === 'inbox' || c.today_slot) {
+          // Planner-sourced or top3 cards tied to this date — include
+          if (cardDueOnDate(c, currentPlanDate)) return true;
+        }
+        if (cardDueOnDate(c, currentPlanDate)) return true;
         return false;
       });
-      if (due.length > 0) {
-        const byProject = {};
-        due.forEach(c => { (byProject[c.project_id] = byProject[c.project_id] || []).push(c); });
-        const groups = el('div', { class: 'also-due-list' });
-        for (const pid in byProject) {
-          const proj = projectById(pid);
-          if (!proj) continue;
-          const g = el('div', { class: 'today-group' }, [
-            el('div', {
-              class: 'today-group-header',
-              style: { '--item-from': proj.accent.from, '--item-to': proj.accent.to },
-            }, [ el('span', { class: 'today-group-dot' }), el('span', {}, proj.name) ]),
-            el('div', { class: 'also-due-list' }, byProject[pid].map(c => alsoDueCardEl(c, proj))),
-          ]);
-          groups.appendChild(g);
-        }
-        wrap.appendChild(el('div', {}, [
-          el('div', { class: 'plan-section-title' }, [el('span', {}, 'Also due ' + label.toLowerCase()), el('span', { class: 'count' }, String(due.length))]),
-          groups,
-        ]));
-      } else {
-        wrap.appendChild(el('div', {}, [
-          el('div', { class: 'plan-section-title' }, [el('span', {}, 'Also due ' + label.toLowerCase())]),
-          el('div', { style: { padding: '14px', color: 'var(--text-tertiary)', fontSize: '12px', fontStyle: 'italic' } }, 'Nothing else due ' + label.toLowerCase() + '.'),
-        ]));
-      }
+      // Unscheduled pool
+      const pool = el('div', { class: 'unscheduled-pool' });
+      due.forEach(c => pool.appendChild(scheduleCardEl(c)));
+      const poolEmpty = el('div', { class: 'unscheduled-empty', style: { display: due.length === 0 ? 'block' : 'none' } }, 'Nothing unscheduled. Drag a card here to unschedule it.');
+      wrap.appendChild(el('div', {}, [
+        el('div', { class: 'plan-section-title' }, [
+          el('span', {}, 'Unscheduled'),
+          el('span', { class: 'count' }, String(due.length)),
+          el('div', { class: 'spacer' }),
+          el('span', { style: { fontSize: '10px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace' } }, 'drag into an hour above'),
+        ]),
+        pool,
+        poolEmpty,
+      ]));
 
       body.appendChild(wrap);
     }
@@ -2919,6 +3195,28 @@
         title: 'Custom date',
       }, (!isToday && !isTomorrow) ? new Date(currentPlanDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'Date…'));
       return wrap;
+    }
+
+    function scheduleCardEl(c) {
+      const proj = c.project_id && c.project_id !== 'inbox' ? projectById(c.project_id) : null;
+      return el('div', {
+        class: 'schedule-card' + (c.done_at ? ' done' : ''),
+        dataset: { cardId: c.id },
+        style: proj ? { '--item-from': proj.accent.from, '--item-to': proj.accent.to } : {},
+        onClick: (e) => {
+          // Click on check toggles done; click elsewhere opens edit
+          if (e.target.closest('.schedule-card-check')) {
+            toggleCardDone(c.id);
+            return;
+          }
+          openCardEditModal(c.id);
+        },
+      }, [
+        el('span', { class: 'schedule-card-check' }, c.done_at ? '✓' : ''),
+        proj ? el('span', { class: 'schedule-card-proj' }) : null,
+        el('span', { class: 'schedule-card-title' }, c.title),
+        c.duration_minutes ? el('span', { class: 'schedule-card-dur' }, formatDuration(c.duration_minutes)) : null,
+      ]);
     }
 
     function top3SlotEl(c, i) {
@@ -3307,12 +3605,52 @@
         const ent = plannerEntry(kind, date) || ensurePlannerEntry(kind, date);
         updatePlannerField(ent.id, field.key, e.target.value);
       };
+      const enterToTask = kind === 'weekly' && !field.long;
+      const commitAsTask = async () => {
+        const text = input.value.trim();
+        if (!text) return;
+        // Clear BEFORE setState so the blur-on-unmount does not re-save the text
+        input.value = '';
+        const ent = plannerEntry(kind, date) || ensurePlannerEntry(kind, date);
+        const parsedDue = parseDueFromText(text);
+        const ctx = state.ui.context_filter !== 'all' ? state.ui.context_filter : 'work';
+        const cardId = uid('card');
+        setState(s => {
+          const pos = s.cards.filter(c => c.project_id === 'inbox').length;
+          s.cards.push({
+            id: cardId, project_id: 'inbox', column_id: null, position: pos,
+            title: text, notes: '', due: parsedDue || null,
+            today_slot: null, today_position: 0, plan_date: null,
+            context: ctx,
+            done_at: null, archived: false,
+            recurrence: null,
+            duration_minutes: null,
+            scheduled_time: null,
+            source: { kind: 'planner', entry_id: ent.id, field_key: field.key },
+            created_at: now(),
+          });
+          const e = s.planner_entries.find(x => x.id === ent.id);
+          if (e) {
+            e.linked = e.linked || {};
+            e.linked[field.key] = e.linked[field.key] || [];
+            e.linked[field.key].push({ type: 'task', id: cardId, title: text });
+          }
+          logActivity('card_created', 'Added from weekly planner: "' + text + '"', { source_type: 'card', source_id: cardId, context: ctx });
+        });
+        soundAdd();
+      };
       const input = field.long
         ? el('textarea', { rows: 3, value: '', onBlur: commit })
         : el('input', {
             type: 'text', value: '',
             onBlur: commit,
-            onKeydown: (e) => { if (e.key === 'Enter') e.target.blur(); },
+            onKeydown: (e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (enterToTask) commitAsTask();
+                else e.target.blur();
+              }
+            },
           });
       input.value = value;
       const wrap = el('div', { class: 'planner-field' }, [label, input]);
@@ -4246,6 +4584,7 @@
         if (c.due) footer.appendChild(duePillEl(c.due));
         if (c.today_slot) footer.appendChild(el('div', { class: 'card-pill plan' }, c.today_slot === 'priority' ? '⭐ Top 3' : c.today_slot));
         if (c.recurrence) footer.appendChild(el('div', { class: 'card-pill', title: 'Recurring: ' + c.recurrence }, '↺ ' + c.recurrence));
+        if (c.duration_minutes) footer.appendChild(el('div', { class: 'card-pill', title: 'Estimated duration' }, '⏱ ' + formatDuration(c.duration_minutes)));
         node.appendChild(footer);
         return node;
       }
@@ -4389,54 +4728,108 @@
       const rail = document.getElementById('right-rail');
       clearNode(rail);
       const view = state.ui.active_view;
-      if (view === 'today' || view === 'daily' || view === 'weekly' || view === 'ideas' || view === 'automations' || view === 'goals' || view === 'activity' || view === 'done') {
-        rail.style.display = 'none';
-        document.getElementById('app').style.gridTemplateColumns = '260px 1fr';
-        return;
-      }
       rail.style.display = '';
       document.getElementById('app').style.gridTemplateColumns = '260px 1fr 300px';
 
+      // Always: Today's list at the top, so tasks are one click away everywhere
+      const todayEntry = plannerEntry('daily', todayISO()) || ensurePlannerEntry('daily', todayISO());
+      rail.appendChild(renderMiniTodayList(todayEntry));
+
+      // Project-scoped sections below
       const proj = projectById(view);
-      if (!proj) return;
+      if (proj) {
+        const notes = notesForProject(proj.id);
+        const notesPanel = el('div', { class: 'rail-panel' }, [
+          el('div', { class: 'rail-panel-head' }, [
+            el('div', { class: 'rail-panel-title' }, 'Notes'),
+            el('button', { class: 'icon-btn', title: 'Add note', onClick: () => addNote(proj.id) }, '+'),
+          ]),
+          el('div', { class: 'notes-list' },
+            notes.length === 0 ? [el('div', { class: 'files-empty' }, EMPTY_COPY.notes)] : notes.map(noteEl)),
+        ]);
+        rail.appendChild(notesPanel);
 
-      const notes = notesForProject(proj.id);
-      const notesPanel = el('div', { class: 'rail-panel' }, [
-        el('div', { class: 'rail-panel-head' }, [
-          el('div', { class: 'rail-panel-title' }, 'Notes'),
-          el('button', { class: 'icon-btn', title: 'Add note', onClick: () => addNote(proj.id) }, '+'),
-        ]),
-        el('div', { class: 'notes-list' },
-          notes.length === 0 ? [el('div', { class: 'files-empty' }, EMPTY_COPY.notes)] : notes.map(noteEl)),
-      ]);
-      rail.appendChild(notesPanel);
+        const files = filesForOwner('project', proj.id);
+        const filesBox = el('div', { class: 'files-list' });
+        if (files.length === 0) filesBox.appendChild(el('div', { class: 'files-empty' }, EMPTY_COPY.files));
+        else files.forEach(f => filesBox.appendChild(fileChipEl(f)));
+        setupFileDrop(filesBox, 'project', proj.id);
+        rail.appendChild(el('div', { class: 'rail-panel' }, [
+          el('div', { class: 'rail-panel-head' }, [el('div', { class: 'rail-panel-title' }, 'Files')]),
+          filesBox,
+        ]));
 
-      const files = filesForOwner('project', proj.id);
-      const filesBox = el('div', { class: 'files-list' });
-      if (files.length === 0) filesBox.appendChild(el('div', { class: 'files-empty' }, EMPTY_COPY.files));
-      else files.forEach(f => filesBox.appendChild(fileChipEl(f)));
-      setupFileDrop(filesBox, 'project', proj.id);
-      rail.appendChild(el('div', { class: 'rail-panel' }, [
-        el('div', { class: 'rail-panel-head' }, [el('div', { class: 'rail-panel-title' }, 'Files')]),
-        filesBox,
-      ]));
-
-      const notesList = rail.querySelector('.notes-list');
-      if (notesList && notes.length > 0) {
-        Sortable.create(notesList, {
-          animation: 180,
-          easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
-          onEnd: () => {
-            const order = [...notesList.children].map(n => n.dataset.noteId).filter(Boolean);
-            setState(s => {
-              order.forEach((id, i) => {
-                const nn = s.notes.find(x => x.id === id);
-                if (nn) nn.position = i;
+        const notesList = rail.querySelector('.notes-list');
+        if (notesList && notes.length > 0) {
+          Sortable.create(notesList, {
+            animation: 180,
+            easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+            onEnd: () => {
+              const order = [...notesList.children].map(n => n.dataset.noteId).filter(Boolean);
+              setState(s => {
+                order.forEach((id, i) => {
+                  const nn = s.notes.find(x => x.id === id);
+                  if (nn) nn.position = i;
+                });
               });
-            });
-          },
-        });
+            },
+          });
+        }
       }
+    }
+
+    function renderMiniTodayList(entry) {
+      const taskIds = Object.values(entry.tasks || {}).filter(Boolean);
+      const plannerCards = state.cards.filter(c => taskIds.includes(c.id));
+      const today = todayISO();
+      const otherDueCards = state.cards.filter(c => {
+        if (taskIds.includes(c.id)) return false;
+        if (c.archived && !c.done_at) return false;
+        if (c.archived && c.done_at && c.done_at.slice(0, 10) !== today) return false;
+        return isDueToday(c);
+      });
+      const all = [...plannerCards, ...otherDueCards];
+      const doneCount = all.filter(c => c.done_at).length;
+
+      const panel = el('div', { class: 'rail-panel' });
+      panel.appendChild(el('div', { class: 'rail-panel-head' }, [
+        el('div', { class: 'rail-panel-title' }, 'Today'),
+        all.length > 0 ? el('span', {
+          style: { fontSize: '10px', padding: '2px 6px', borderRadius: '4px',
+            background: 'linear-gradient(135deg, var(--accent-from), var(--accent-to))',
+            color: 'white', fontWeight: '600', fontFamily: 'JetBrains Mono, monospace' },
+        }, doneCount + ' / ' + all.length) : null,
+      ]));
+      if (all.length === 0) {
+        panel.appendChild(el('div', { class: 'files-empty', style: { padding: '10px', fontSize: '12px' } }, 'No tasks for today yet.'));
+      } else {
+        const list = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } });
+        all.forEach(c => list.appendChild(miniTodayRowEl(c)));
+        panel.appendChild(list);
+      }
+      return panel;
+    }
+
+    function miniTodayRowEl(c) {
+      const proj = c.project_id && c.project_id !== 'inbox' ? projectById(c.project_id) : null;
+      return el('div', {
+        class: 'today-row' + (c.done_at ? ' done' : ''),
+        style: { padding: '6px 4px', borderRadius: '6px', fontSize: '12px' },
+        onClick: () => toggleCardDone(c.id),
+        title: c.done_at ? 'Completed ' + new Date(c.done_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : 'Click to mark done',
+      }, [
+        el('div', { class: 'today-check', style: { width: '16px', height: '16px' } }, c.done_at ? '✓' : ''),
+        el('div', { style: { flex: '1', minWidth: '0' } }, [
+          el('div', { class: 'today-title', style: { fontSize: '12px' } }, c.title),
+          proj ? el('div', {
+            class: 'today-meta',
+            style: { fontSize: '9px', '--item-from': proj.accent.from, '--item-to': proj.accent.to },
+          }, [
+            el('span', { class: 'today-project-dot', style: { width: '5px', height: '5px' } }),
+            el('span', {}, proj.name),
+          ]) : null,
+        ]),
+      ]);
     }
 
     function noteEl(n) {
