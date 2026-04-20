@@ -2946,8 +2946,13 @@
     }
     function scheduledOnDate(dateIso) {
       return state.cards.filter(c => {
-        if (!c.scheduled_time || c.archived) return false;
-        return c.scheduled_time.slice(0, 10) === dateIso;
+        if (!c.scheduled_time) return false;
+        if (c.scheduled_time.slice(0, 10) !== dateIso) return false;
+        if (c.archived) {
+          // Keep completed-today tasks on the schedule (strike-through) until day flips.
+          return c.done_at && c.done_at.slice(0, 10) === dateIso;
+        }
+        return true;
       });
     }
     function hourOfScheduled(c) {
