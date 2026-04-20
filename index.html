@@ -844,7 +844,7 @@
     }
     .schedule-slot {
       padding: 4px 6px;
-      display: flex; flex-direction: column; gap: 4px;
+      position: relative;
       min-height: 44px;
       transition: background 120ms;
     }
@@ -860,8 +860,50 @@
       display: flex; align-items: center; gap: 8px;
       transition: background 120ms;
     }
+    .schedule-card:not(.timeline) + .schedule-card:not(.timeline) { margin-top: 4px; }
     .schedule-card:hover { background: var(--card-hover); }
     .schedule-card.done { opacity: 0.55; text-decoration: line-through; }
+    .schedule-card.timeline {
+      position: absolute;
+      padding: 4px 10px;
+      overflow: hidden;
+      z-index: 2;
+      align-items: flex-start;
+      line-height: 1.25;
+    }
+    .schedule-card.timeline:hover { z-index: 4; }
+    .schedule-card.timeline.resizing { z-index: 5; transition: none; }
+    .schedule-card.timeline .schedule-card-title {
+      white-space: normal;
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+    }
+    .schedule-card-resize {
+      position: absolute;
+      left: 8px; right: 8px; bottom: 0;
+      height: 6px;
+      cursor: ns-resize;
+      border-radius: 0 0 6px 6px;
+      z-index: 6;
+    }
+    .schedule-card-resize::after {
+      content: '';
+      position: absolute;
+      left: 50%; bottom: 1px;
+      width: 20px; height: 2px;
+      background: var(--border-strong);
+      border-radius: 1px;
+      transform: translateX(-50%);
+      opacity: 0;
+      transition: opacity 120ms;
+    }
+    .schedule-card.timeline:hover .schedule-card-resize::after,
+    .schedule-card-resize:hover::after { opacity: 1; }
+    body.sched-dragging .schedule-card.timeline:not(.sortable-drag):not(.sortable-chosen) {
+      pointer-events: none;
+    }
     .schedule-card-check {
       width: 14px; height: 14px; flex-shrink: 0;
       border: 1.5px solid var(--border-strong);
@@ -2311,15 +2353,24 @@
       });
     }
 
+    function findLiveCardByTitle(title) {
+      const t = (title || '').trim().toLowerCase();
+      if (!t) return null;
+      return state.cards.find(c => !c.archived && !c.done_at && (c.title || '').trim().toLowerCase() === t) || null;
+    }
+
     function addBankCard(title, context) {
       const t = title.trim();
-      if (!t) return;
+      if (!t) return null;
+      const existing = findLiveCardByTitle(t);
+      if (existing) return existing;
+      const cardId = uid('card');
       setState(s => {
         const pos = s.cards.filter(c => c.project_id === 'inbox').length;
-        const newCard = { id: uid('card'), project_id: 'inbox', column_id: null, position: pos, title: t, notes: '', due: null, today_slot: null, today_position: 0, context: context || null, created_at: now() };
-        s.cards.push(newCard);
-        logActivity('card_created', 'Added task "' + t + '" to bank', { source_type: 'card', source_id: newCard.id, context });
+        s.cards.push({ id: cardId, project_id: 'inbox', column_id: null, position: pos, title: t, notes: '', due: null, today_slot: null, today_position: 0, context: context || null, created_at: now() });
+        logActivity('card_created', 'Added task "' + t + '" to bank', { source_type: 'card', source_id: cardId, context });
       });
+      return state.cards.find(c => c.id === cardId);
     }
 
     function updateCard(id, patch) {
@@ -2616,32 +2667,35 @@
     function addTaskFromField(entryId, field, title, context) {
       const t = (title || '').trim();
       if (!t) return;
-      const cardId = uid('card');
+      const existing = findLiveCardByTitle(t);
+      const cardId = existing ? existing.id : uid('card');
       setState(s => {
         const entry = s.planner_entries.find(x => x.id === entryId);
         const plannerDate = entry ? entry.date : todayISO();
         const due = plannerDate === todayISO() ? 'today'
                   : plannerDate === tomorrowISO() ? 'tomorrow'
                   : plannerDate;
-        const pos = s.cards.filter(c => c.project_id === 'inbox').length;
-        s.cards.push({
-          id: cardId, project_id: 'inbox', column_id: null, position: pos,
-          title: t, notes: '', due,
-          today_slot: null, today_position: 0, plan_date: null,
-          context: context || null,
-          done_at: null, archived: false,
-          recurrence: null,
-          source: { kind: 'planner', entry_id: entryId, field_key: field.key },
-          created_at: now(),
-        });
+        if (!existing) {
+          const pos = s.cards.filter(c => c.project_id === 'inbox').length;
+          s.cards.push({
+            id: cardId, project_id: 'inbox', column_id: null, position: pos,
+            title: t, notes: '', due,
+            today_slot: null, today_position: 0, plan_date: null,
+            context: context || null,
+            done_at: null, archived: false,
+            recurrence: null,
+            source: { kind: 'planner', entry_id: entryId, field_key: field.key },
+            created_at: now(),
+          });
+          logActivity('card_created', 'Added from planner: "' + t + '"', { source_type: 'card', source_id: cardId, context });
+        }
         if (entry) {
           entry.tasks = entry.tasks || {};
           entry.tasks[field.key] = cardId;
           entry.updated_at = now();
         }
-        logActivity('card_created', 'Added from planner: "' + t + '"', { source_type: 'card', source_id: cardId, context });
       });
-      soundAdd();
+      if (!existing) soundAdd();
       return cardId;
     }
     function removeTaskFromField(entryId, fieldKey) {
@@ -2724,6 +2778,46 @@
       if (m) return parseInt(m[1], 10);
       // Fallback: handle older UTC-format entries
       return new Date(c.scheduled_time).getHours();
+    }
+    function minuteOfScheduled(c) {
+      if (!c.scheduled_time) return 0;
+      const m = c.scheduled_time.match(/T\d{2}:(\d{2})/);
+      if (m) return parseInt(m[1], 10);
+      return new Date(c.scheduled_time).getMinutes();
+    }
+    function computeScheduleLayout(cards) {
+      if (!cards.length) return {};
+      const items = cards.map(c => {
+        const start = hourOfScheduled(c) * 60 + minuteOfScheduled(c);
+        const dur = c.duration_minutes || 60;
+        return { id: c.id, start, end: start + dur, dur };
+      });
+      // Union-find clusters of transitively-overlapping cards
+      const parent = {};
+      items.forEach(t => { parent[t.id] = t.id; });
+      const find = (x) => parent[x] === x ? x : (parent[x] = find(parent[x]));
+      const union = (a, b) => { parent[find(a)] = find(b); };
+      for (let i = 0; i < items.length; i++) {
+        for (let j = i + 1; j < items.length; j++) {
+          if (items[i].end > items[j].start && items[j].end > items[i].start) union(items[i].id, items[j].id);
+        }
+      }
+      const clusters = {};
+      items.forEach(t => { const r = find(t.id); (clusters[r] = clusters[r] || []).push(t); });
+      const layout = {};
+      Object.values(clusters).forEach(cluster => {
+        cluster.sort((a, b) => a.start - b.start || b.dur - a.dur);
+        const colEnds = [];
+        cluster.forEach(t => {
+          let col = colEnds.findIndex(e => e <= t.start);
+          if (col === -1) { col = colEnds.length; colEnds.push(0); }
+          colEnds[col] = t.end;
+          layout[t.id] = { col };
+        });
+        const cols = colEnds.length;
+        cluster.forEach(t => { layout[t.id].cols = cols; });
+      });
+      return layout;
     }
 
     function addCardToPlan(cardId, slot, planDate) {
@@ -3314,6 +3408,7 @@
       const schedule = el('div', { class: 'schedule' });
       const scheduled = scheduledOnDate(currentPlanDate);
       const nowHour = isToday ? new Date().getHours() : -1;
+      const scheduleLayout = computeScheduleLayout(scheduled);
       for (let h = 5; h <= 23; h++) {
         const row = el('div', { class: 'schedule-row' + (h === nowHour ? ' now' : '') });
         const label = new Date(2000, 0, 1, h).toLocaleTimeString(undefined, { hour: 'numeric' });
@@ -3324,7 +3419,7 @@
         });
         scheduled
           .filter(c => hourOfScheduled(c) === h)
-          .forEach(c => slot.appendChild(scheduleCardEl(c)));
+          .forEach(c => slot.appendChild(scheduleCardEl(c, scheduleLayout[c.id])));
         row.appendChild(slot);
         schedule.appendChild(row);
       }
@@ -3354,6 +3449,7 @@
             group: { name: 'schedule', pull: true, put: ['schedule', 'cards'] },
             animation: 160,
             easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+            onStart: () => document.body.classList.add('sched-dragging'),
             // onAdd fires when a card arrives from ANOTHER list (bank, project column, pool)
             onAdd: (evt) => {
               const cardId = evt.item.dataset.cardId;
@@ -3367,6 +3463,7 @@
             },
             // onEnd handles reorders within schedule (card moved between hour slots)
             onEnd: (evt) => {
+              document.body.classList.remove('sched-dragging');
               if (evt.from === evt.to) return; // same-list reorder, ignore
               // Cross-list moves WITHIN the schedule group (slot ↔ pool, slot ↔ slot)
               if (!evt.from.classList.contains('schedule-slot') && !evt.from.classList.contains('unscheduled-pool')) return;
@@ -3442,14 +3539,29 @@
       return wrap;
     }
 
-    function scheduleCardEl(c) {
+    function scheduleCardEl(c, layout) {
       const proj = c.project_id && c.project_id !== 'inbox' ? projectById(c.project_id) : null;
-      return el('div', {
-        class: 'schedule-card' + (c.done_at ? ' done' : ''),
+      const style = proj ? { '--item-from': proj.accent.from, '--item-to': proj.accent.to } : {};
+      if (layout) {
+        const HOUR_PX = 44;
+        const startMin = minuteOfScheduled(c);
+        const dur = c.duration_minutes || 60;
+        const gap = 2;
+        const colPct = 100 / layout.cols;
+        const leftGap = layout.col === 0 ? 0 : gap;
+        const rightGap = layout.col === layout.cols - 1 ? 0 : gap;
+        style.position = 'absolute';
+        style.top = (startMin / 60 * HOUR_PX) + 'px';
+        style.height = Math.max(26, dur / 60 * HOUR_PX - gap) + 'px';
+        style.left = `calc(${layout.col * colPct}% + ${leftGap}px)`;
+        style.width = `calc(${colPct}% - ${leftGap + rightGap}px)`;
+      }
+      const card = el('div', {
+        class: 'schedule-card' + (c.done_at ? ' done' : '') + (layout ? ' timeline' : ''),
         dataset: { cardId: c.id },
-        style: proj ? { '--item-from': proj.accent.from, '--item-to': proj.accent.to } : {},
+        style,
         onClick: (e) => {
-          // Click on check toggles done; click elsewhere opens edit
+          if (e.target.closest('.schedule-card-resize')) return;
           if (e.target.closest('.schedule-card-check')) {
             toggleCardDone(c.id);
             return;
@@ -3461,7 +3573,53 @@
         proj ? el('span', { class: 'schedule-card-proj' }) : null,
         el('span', { class: 'schedule-card-title' }, c.title),
         c.duration_minutes ? el('span', { class: 'schedule-card-dur' }, formatDuration(c.duration_minutes)) : null,
+        layout ? el('div', { class: 'schedule-card-resize', title: 'Drag to extend' }) : null,
       ]);
+      if (layout) attachScheduleResize(card, c.id);
+      return card;
+    }
+
+    function attachScheduleResize(card, cardId) {
+      const handle = card.querySelector('.schedule-card-resize');
+      if (!handle) return;
+      const block = (e) => e.stopPropagation();
+      handle.addEventListener('mousedown', block);
+      handle.addEventListener('touchstart', block);
+      handle.addEventListener('pointerdown', (e) => {
+        if (e.button !== undefined && e.button !== 0) return;
+        e.stopPropagation();
+        e.preventDefault();
+        const c = state.cards.find(x => x.id === cardId);
+        if (!c) return;
+        const HOUR_PX = 44;
+        const SNAP = 15;
+        const startY = e.clientY;
+        const initDur = c.duration_minutes || 60;
+        const startAbs = hourOfScheduled(c) * 60 + minuteOfScheduled(c);
+        const maxDur = 24 * 60 - startAbs;
+        card.classList.add('resizing');
+        const compute = (ev) => {
+          const dy = ev.clientY - startY;
+          const delta = Math.round(dy / HOUR_PX * 60 / SNAP) * SNAP;
+          return Math.max(SNAP, Math.min(maxDur, initDur + delta));
+        };
+        const onMove = (ev) => {
+          const d = compute(ev);
+          card.style.height = Math.max(26, d / 60 * HOUR_PX - 2) + 'px';
+        };
+        const onUp = (ev) => {
+          document.removeEventListener('pointermove', onMove);
+          document.removeEventListener('pointerup', onUp);
+          card.classList.remove('resizing');
+          const d = compute(ev);
+          setState(s => {
+            const cc = s.cards.find(x => x.id === cardId);
+            if (cc) cc.duration_minutes = d;
+          });
+        };
+        document.addEventListener('pointermove', onMove);
+        document.addEventListener('pointerup', onUp);
+      });
     }
 
     function top3SlotEl(c, i) {
@@ -3867,30 +4025,34 @@
                     : date;
         }
         const ctx = state.ui.context_filter !== 'all' ? state.ui.context_filter : 'work';
-        const cardId = uid('card');
+        const existing = findLiveCardByTitle(text);
+        const cardId = existing ? existing.id : uid('card');
         setState(s => {
-          const pos = s.cards.filter(c => c.project_id === 'inbox').length;
-          s.cards.push({
-            id: cardId, project_id: 'inbox', column_id: null, position: pos,
-            title: text, notes: '', due: finalDue || null,
-            today_slot: null, today_position: 0, plan_date: null,
-            context: ctx,
-            done_at: null, archived: false,
-            recurrence: null,
-            duration_minutes: null,
-            scheduled_time: null,
-            source: { kind: 'planner', entry_id: ent.id, field_key: field.key },
-            created_at: now(),
-          });
+          if (!existing) {
+            const pos = s.cards.filter(c => c.project_id === 'inbox').length;
+            s.cards.push({
+              id: cardId, project_id: 'inbox', column_id: null, position: pos,
+              title: text, notes: '', due: finalDue || null,
+              today_slot: null, today_position: 0, plan_date: null,
+              context: ctx,
+              done_at: null, archived: false,
+              recurrence: null,
+              duration_minutes: null,
+              scheduled_time: null,
+              source: { kind: 'planner', entry_id: ent.id, field_key: field.key },
+              created_at: now(),
+            });
+            logActivity('card_created', 'Added from ' + kind + ' planner: "' + text + '"', { source_type: 'card', source_id: cardId, context: ctx });
+          }
           const e = s.planner_entries.find(x => x.id === ent.id);
           if (e) {
             e.linked = e.linked || {};
             e.linked[field.key] = e.linked[field.key] || [];
-            e.linked[field.key].push({ type: 'task', id: cardId, title: text });
+            const already = e.linked[field.key].some(l => l.id === cardId);
+            if (!already) e.linked[field.key].push({ type: 'task', id: cardId, title: text });
           }
-          logActivity('card_created', 'Added from ' + kind + ' planner: "' + text + '"', { source_type: 'card', source_id: cardId, context: ctx });
         });
-        soundAdd();
+        if (!existing) soundAdd();
       };
       const keydownHandler = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
