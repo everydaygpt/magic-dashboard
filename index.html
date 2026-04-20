@@ -2174,10 +2174,15 @@
       if (!t) return;
       const cardId = uid('card');
       setState(s => {
+        const entry = s.planner_entries.find(x => x.id === entryId);
+        const plannerDate = entry ? entry.date : todayISO();
+        const due = plannerDate === todayISO() ? 'today'
+                  : plannerDate === tomorrowISO() ? 'tomorrow'
+                  : plannerDate;
         const pos = s.cards.filter(c => c.project_id === 'inbox').length;
         s.cards.push({
           id: cardId, project_id: 'inbox', column_id: null, position: pos,
-          title: t, notes: '', due: 'today',
+          title: t, notes: '', due,
           today_slot: null, today_position: 0, plan_date: null,
           context: context || null,
           done_at: null, archived: false,
@@ -2185,11 +2190,10 @@
           source: { kind: 'planner', entry_id: entryId, field_key: field.key },
           created_at: now(),
         });
-        const e = s.planner_entries.find(x => x.id === entryId);
-        if (e) {
-          e.tasks = e.tasks || {};
-          e.tasks[field.key] = cardId;
-          e.updated_at = now();
+        if (entry) {
+          entry.tasks = entry.tasks || {};
+          entry.tasks[field.key] = cardId;
+          entry.updated_at = now();
         }
         logActivity('card_created', 'Added from planner: "' + t + '"', { source_type: 'card', source_id: cardId, context });
       });
@@ -3046,7 +3050,7 @@
       const linked = entry ? (((entry.linked || {})[field.key]) || []) : [];
       const taskId = entry ? (((entry.tasks || {})[field.key])) : null;
       const taskCard = taskId ? state.cards.find(c => c.id === taskId) : null;
-      const isToday = kind === 'daily' && date === todayISO();
+      const canAddTask = kind === 'daily' && date >= todayISO();
       const labelChildren = [el('span', {}, field.label)];
       labelChildren.push(el('button', {
         class: 'pull-btn',
@@ -3055,7 +3059,7 @@
           openPlannerPullModal(ent, field);
         },
       }, '+ pull'));
-      if (field.taskable && isToday) {
+      if (field.taskable && canAddTask) {
         if (taskCard) {
           if (taskCard.done_at) {
             labelChildren.push(el('span', { class: 'task-status done', title: 'Completed ' + new Date(taskCard.done_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) }, '✓ done'));
@@ -3247,37 +3251,55 @@
       setState(s => { s.ui.banner_dismissed = s.ui.banner_dismissed || {}; s.ui.banner_dismissed[kind] = date; });
     }
 
-    function renderTodayListEl(entry, isToday) {
+    function cardDueOnDate(c, dateIso) {
+      if (!c.due) return false;
+      if (c.due === dateIso) return true;
+      if (c.due === 'today' && dateIso === todayISO()) return true;
+      if (c.due === 'tomorrow' && dateIso === tomorrowISO()) return true;
+      return false;
+    }
+
+    function renderTodayListEl(entry, date) {
+      const isToday = date === todayISO();
+      const isTomorrow = date === tomorrowISO();
+      const dayLabel = isToday ? 'today' : isTomorrow ? 'tomorrow' : new Date(date + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long' });
+      const listTitle = isToday ? "Today's list" : isTomorrow ? "Tomorrow's list" : dayLabel.charAt(0).toUpperCase() + dayLabel.slice(1) + "'s list";
+
       const taskIds = Object.values(entry.tasks || {}).filter(Boolean);
       const plannerCards = state.cards.filter(c => taskIds.includes(c.id));
-      const otherDueTodayCards = state.cards.filter(c => {
+      const otherDueCards = state.cards.filter(c => {
         if (taskIds.includes(c.id)) return false;
-        if (c.archived && !c.done_at) return false;
-        // Include done-today cards so checkboxes feel sticky
-        if (c.archived && c.done_at && c.done_at.slice(0, 10) !== todayISO()) return false;
-        return isDueToday(c);
+        // For today: keep done-today cards visible so completed checkboxes stick
+        if (isToday) {
+          if (c.archived && !c.done_at) return false;
+          if (c.archived && c.done_at && c.done_at.slice(0, 10) !== date) return false;
+          return isDueToday(c);
+        }
+        // For future dates: hide archived entirely
+        if (c.archived) return false;
+        return cardDueOnDate(c, date);
       });
-      const all = [...plannerCards, ...otherDueTodayCards];
+      const all = [...plannerCards, ...otherDueCards];
       const doneCount = all.filter(c => c.done_at).length;
 
       const wrap = el('div', { class: 'today-list' });
       wrap.appendChild(el('div', { class: 'today-list-head' }, [
-        el('span', {}, "Today's list"),
+        el('span', {}, listTitle),
         all.length > 0 ? el('span', { class: 'count' }, doneCount + ' / ' + all.length) : null,
       ]));
       if (all.length === 0) {
-        wrap.appendChild(el('div', { class: 'today-empty' }, isToday
+        wrap.appendChild(el('div', { class: 'today-empty' }, (isToday || isTomorrow)
           ? 'Fill in the planner below. Checkable tasks land here.'
           : 'No tasks captured for this day.'));
         return wrap;
       }
       if (plannerCards.length) {
-        wrap.appendChild(el('div', { class: 'today-list-group' }, "From today's planner"));
+        wrap.appendChild(el('div', { class: 'today-list-group' }, 'From ' + dayLabel + "'s planner"));
         plannerCards.forEach(c => wrap.appendChild(todayRowEl(c)));
       }
-      if (otherDueTodayCards.length) {
-        wrap.appendChild(el('div', { class: 'today-list-group' }, 'Also due today'));
-        otherDueTodayCards.forEach(c => wrap.appendChild(todayRowEl(c)));
+      if (otherDueCards.length) {
+        wrap.appendChild(el('div', { class: 'today-list-group' }, 'Also due ' + dayLabel));
+        otherDueCards.forEach(c => wrap.appendChild(todayRowEl(c)));
       }
       return wrap;
     }
@@ -3311,27 +3333,31 @@
         el('span', { style: { fontSize: '22px' } }, '🌅'),
         el('span', {}, 'Daily planner'),
       ]));
-      header.appendChild(el('div', { class: 'main-subtitle' }, dateLabel + (isToday ? '' : ' · history')));
-      header.appendChild(el('div', { class: 'main-actions', style: { display: 'flex', gap: '6px', alignItems: 'center' } }, [
-        plannerDateNavEl('daily'),
-        el('button', {
+      const dateStatus = isToday ? '' : (date > today ? ' · planning ahead' : ' · history');
+      header.appendChild(el('div', { class: 'main-subtitle' }, dateLabel + dateStatus));
+      const actions = [plannerDateNavEl('daily')];
+      if (isToday) {
+        actions.push(el('button', {
           class: 'text-btn',
-          title: 'Carry over yesterday\u2019s undone items',
-          onClick: () => {
-            const ent = plannerEntry('daily', date) || ensurePlannerEntry('daily', date);
-            carryOverYesterday(ent.id);
-          },
-        }, '← Carry over'),
-      ]));
+          title: 'Jump to tomorrow and start planning it',
+          onClick: () => { currentDailyDate = tomorrowISO(); render(); },
+        }, '🌙 Plan tomorrow'));
+      }
+      actions.push(el('button', {
+        class: 'text-btn',
+        title: 'Carry over yesterday\u2019s undone items',
+        onClick: () => {
+          const ent = plannerEntry('daily', date) || ensurePlannerEntry('daily', date);
+          carryOverYesterday(ent.id);
+        },
+      }, '← Carry over'));
+      header.appendChild(el('div', { class: 'main-actions', style: { display: 'flex', gap: '6px', alignItems: 'center' } }, actions));
 
       const wrap = el('div', { class: 'planner-wrap' });
-      const entry = plannerEntry('daily', date);
-      if (entry && isToday) {
-        wrap.appendChild(renderTodayListEl(entry, isToday));
-      } else if (isToday) {
-        // Show the list even with no entry (empty state)
-        const ent = ensurePlannerEntry('daily', date);
-        wrap.appendChild(renderTodayListEl(ent, isToday));
+      const dateIsFuture = date >= today;
+      if (dateIsFuture) {
+        const ent = plannerEntry('daily', date) || ensurePlannerEntry('daily', date);
+        wrap.appendChild(renderTodayListEl(ent, date));
       }
       DAILY_FIELDS.forEach(section => {
         const sec = el('div', { class: 'planner-section' }, [
