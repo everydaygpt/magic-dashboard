@@ -2366,7 +2366,7 @@
     // ---------- Planner (Morning Magic) ----------
     const DAILY_FIELDS = [
       { section: 'Email scan', items: [
-        { key: 'email_items', label: 'Anything due today / this week / this month? (one per line)', long: true, hint: 'bullet per line' },
+        { key: 'email_items', label: 'Anything due today / this week / this month? (press Enter after each — becomes a task)', long: true, hint: 'bullet per line', enterIsTask: true },
       ]},
       { section: 'Look at yesterday', items: [
         { key: 'y_well', label: 'What went well?', long: true },
@@ -2555,9 +2555,8 @@
       setState(s => {
         const c = s.cards.find(x => x.id === cardId);
         if (!c) return;
-        const t = new Date(dateIso + 'T00:00:00');
-        t.setHours(hour, 0, 0, 0);
-        c.scheduled_time = t.toISOString();
+        // Store as a LOCAL time string (not UTC) so slice(0,10) matches the local date
+        c.scheduled_time = dateIso + 'T' + String(hour).padStart(2, '0') + ':00:00';
       });
     }
     function unscheduleCard(cardId) {
@@ -2574,6 +2573,10 @@
     }
     function hourOfScheduled(c) {
       if (!c.scheduled_time) return null;
+      // Parse hour from local time string "YYYY-MM-DDTHH:..." without UTC conversion
+      const m = c.scheduled_time.match(/T(\d{2}):/);
+      if (m) return parseInt(m[1], 10);
+      // Fallback: handle older UTC-format entries
       return new Date(c.scheduled_time).getHours();
     }
 
@@ -3140,7 +3143,7 @@
 
       // Unscheduled pool: cards for this date that don't have a scheduled_time yet
       const todayEntryForDate = plannerEntry('daily', currentPlanDate);
-      const plannerTaskIds = todayEntryForDate ? Object.values(todayEntryForDate.tasks || {}).filter(Boolean) : [];
+      const plannerTaskIds = todayEntryForDate ? plannerLinkedCardIds(todayEntryForDate) : [];
       const due = state.cards.filter(c => {
         if (c.archived) return false;
         if (c.scheduled_time) return false;
@@ -3605,7 +3608,7 @@
         const ent = plannerEntry(kind, date) || ensurePlannerEntry(kind, date);
         updatePlannerField(ent.id, field.key, e.target.value);
       };
-      const enterToTask = kind === 'weekly' && !field.long;
+      const enterToTask = !field.long || field.enterIsTask;
       const commitAsTask = async () => {
         const text = input.value.trim();
         if (!text) return;
@@ -3613,13 +3616,21 @@
         input.value = '';
         const ent = plannerEntry(kind, date) || ensurePlannerEntry(kind, date);
         const parsedDue = parseDueFromText(text);
+        // For daily-planner tasks without an explicit date, default to the planner's date
+        // so they show up in Today's list automatically.
+        let finalDue = parsedDue;
+        if (!finalDue && kind === 'daily') {
+          finalDue = date === todayISO() ? 'today'
+                    : date === tomorrowISO() ? 'tomorrow'
+                    : date;
+        }
         const ctx = state.ui.context_filter !== 'all' ? state.ui.context_filter : 'work';
         const cardId = uid('card');
         setState(s => {
           const pos = s.cards.filter(c => c.project_id === 'inbox').length;
           s.cards.push({
             id: cardId, project_id: 'inbox', column_id: null, position: pos,
-            title: text, notes: '', due: parsedDue || null,
+            title: text, notes: '', due: finalDue || null,
             today_slot: null, today_position: 0, plan_date: null,
             context: ctx,
             done_at: null, archived: false,
@@ -3635,22 +3646,22 @@
             e.linked[field.key] = e.linked[field.key] || [];
             e.linked[field.key].push({ type: 'task', id: cardId, title: text });
           }
-          logActivity('card_created', 'Added from weekly planner: "' + text + '"', { source_type: 'card', source_id: cardId, context: ctx });
+          logActivity('card_created', 'Added from ' + kind + ' planner: "' + text + '"', { source_type: 'card', source_id: cardId, context: ctx });
         });
         soundAdd();
       };
+      const keydownHandler = (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          if (enterToTask) { e.preventDefault(); commitAsTask(); }
+          else if (!field.long) { e.preventDefault(); e.target.blur(); }
+        }
+      };
       const input = field.long
-        ? el('textarea', { rows: 3, value: '', onBlur: commit })
+        ? el('textarea', { rows: 3, value: '', onBlur: commit, onKeydown: keydownHandler })
         : el('input', {
             type: 'text', value: '',
             onBlur: commit,
-            onKeydown: (e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                if (enterToTask) commitAsTask();
-                else e.target.blur();
-              }
-            },
+            onKeydown: keydownHandler,
           });
       input.value = value;
       const wrap = el('div', { class: 'planner-field' }, [label, input]);
@@ -3813,13 +3824,22 @@
       return false;
     }
 
+    function plannerLinkedCardIds(entry) {
+      const taskIds = Object.values(entry.tasks || {}).filter(Boolean);
+      const linkedIds = Object.values(entry.linked || {})
+        .flat()
+        .filter(it => it && it.type === 'task')
+        .map(it => it.id);
+      return [...new Set([...taskIds, ...linkedIds])];
+    }
+
     function renderTodayListEl(entry, date) {
       const isToday = date === todayISO();
       const isTomorrow = date === tomorrowISO();
       const dayLabel = isToday ? 'today' : isTomorrow ? 'tomorrow' : new Date(date + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long' });
       const listTitle = isToday ? "Today's list" : isTomorrow ? "Tomorrow's list" : dayLabel.charAt(0).toUpperCase() + dayLabel.slice(1) + "'s list";
 
-      const taskIds = Object.values(entry.tasks || {}).filter(Boolean);
+      const taskIds = plannerLinkedCardIds(entry);
       const plannerCards = state.cards.filter(c => taskIds.includes(c.id));
       const otherDueCards = state.cards.filter(c => {
         if (taskIds.includes(c.id)) return false;
@@ -4779,7 +4799,7 @@
     }
 
     function renderMiniTodayList(entry) {
-      const taskIds = Object.values(entry.tasks || {}).filter(Boolean);
+      const taskIds = plannerLinkedCardIds(entry);
       const plannerCards = state.cards.filter(c => taskIds.includes(c.id));
       const today = todayISO();
       const otherDueCards = state.cards.filter(c => {
