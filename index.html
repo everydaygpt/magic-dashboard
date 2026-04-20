@@ -3119,20 +3119,36 @@
         schedule,
       ]));
 
-      // Hook up Sortable for cross-hour and pool drag
+      // Hook up Sortable for cross-hour and pool drag.
+      // Accept drops from Task Bank + project columns (group 'cards') too.
       setTimeout(() => {
         const slots = wrap.querySelectorAll('.schedule-slot, .unscheduled-pool');
         slots.forEach(s => {
           Sortable.create(s, {
-            group: { name: 'schedule', pull: true, put: true },
+            group: { name: 'schedule', pull: true, put: ['schedule', 'cards'] },
             animation: 160,
             easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
-            onEnd: (evt) => {
+            // onAdd fires when a card arrives from ANOTHER list (bank, project column, pool)
+            onAdd: (evt) => {
               const cardId = evt.item.dataset.cardId;
               if (!cardId) return;
               if (evt.to.classList.contains('unscheduled-pool')) {
                 unscheduleCard(cardId);
               } else {
+                const h = parseInt(evt.to.dataset.scheduleHour, 10);
+                if (!isNaN(h)) scheduleCardAt(cardId, currentPlanDate, h);
+              }
+            },
+            // onEnd handles reorders within schedule (card moved between hour slots)
+            onEnd: (evt) => {
+              if (evt.from === evt.to) return; // same-list reorder, ignore
+              // Cross-list moves WITHIN the schedule group (slot ↔ pool, slot ↔ slot)
+              if (!evt.from.classList.contains('schedule-slot') && !evt.from.classList.contains('unscheduled-pool')) return;
+              const cardId = evt.item.dataset.cardId;
+              if (!cardId) return;
+              if (evt.to.classList.contains('unscheduled-pool')) {
+                unscheduleCard(cardId);
+              } else if (evt.to.classList.contains('schedule-slot')) {
                 const h = parseInt(evt.to.dataset.scheduleHour, 10);
                 if (!isNaN(h)) scheduleCardAt(cardId, currentPlanDate, h);
               }
