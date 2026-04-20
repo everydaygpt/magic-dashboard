@@ -1355,6 +1355,142 @@
       sessionStorage.removeItem('cmd_auth');
       location.reload();
     }
+    // ---------- Cloud sync (GitHub Gist) ----------
+    const GIST_PAT_KEY = 'cmd_gh_pat';
+    const GIST_ID_KEY = 'cmd_gist_id';
+    const GIST_FILENAME = 'cmd-state.json';
+    const SYNC_PUSH_DEBOUNCE = 2500;
+    let syncStatus = 'idle';
+    let syncPushTimer = null;
+    let lastSyncAt = null;
+
+    function getSyncPat() { return localStorage.getItem(GIST_PAT_KEY) || ''; }
+    function setSyncPat(v) {
+      if (v) localStorage.setItem(GIST_PAT_KEY, v);
+      else localStorage.removeItem(GIST_PAT_KEY);
+    }
+    function getSyncGistId() { return localStorage.getItem(GIST_ID_KEY) || ''; }
+    function setSyncGistId(v) {
+      if (v) localStorage.setItem(GIST_ID_KEY, v);
+      else localStorage.removeItem(GIST_ID_KEY);
+    }
+
+    async function ghApi(path, opts) {
+      const pat = getSyncPat();
+      if (!pat) throw new Error('No sync token configured');
+      opts = opts || {};
+      const res = await fetch('https://api.github.com' + path, {
+        ...opts,
+        headers: {
+          'Authorization': 'Bearer ' + pat,
+          'Accept': 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+          ...(opts.headers || {}),
+        },
+      });
+      if (!res.ok) {
+        const msg = await res.text();
+        throw new Error('GitHub ' + res.status + ': ' + msg.slice(0, 200));
+      }
+      return res.json();
+    }
+
+    async function ensureSyncGist() {
+      let id = getSyncGistId();
+      if (id) {
+        try { await ghApi('/gists/' + id); return id; } catch (e) { /* fall through and find */ }
+      }
+      const gists = await ghApi('/gists?per_page=100');
+      const existing = gists.find(g => g.files && g.files[GIST_FILENAME]);
+      if (existing) { setSyncGistId(existing.id); return existing.id; }
+      const snapshot = { ...state, last_updated: new Date().toISOString() };
+      const fresh = await ghApi('/gists', {
+        method: 'POST',
+        body: JSON.stringify({
+          description: 'Magic Dashboard — state sync',
+          public: false,
+          files: { [GIST_FILENAME]: { content: JSON.stringify(snapshot, null, 2) } },
+        }),
+      });
+      setSyncGistId(fresh.id);
+      return fresh.id;
+    }
+
+    async function pullFromSync() {
+      if (!getSyncPat()) return null;
+      const id = await ensureSyncGist();
+      if (!id) return null;
+      const gist = await ghApi('/gists/' + id);
+      const file = gist.files && gist.files[GIST_FILENAME];
+      if (!file) return null;
+      // gists truncate large files — for now we accept full content
+      const text = file.truncated ? await fetch(file.raw_url).then(r => r.text()) : file.content;
+      try { return JSON.parse(text); } catch (e) { return null; }
+    }
+
+    async function pushToSync() {
+      if (!getSyncPat()) return;
+      try {
+        syncStatus = 'syncing'; updateSyncBadge();
+        const id = await ensureSyncGist();
+        if (!id) { syncStatus = 'error'; updateSyncBadge(); return; }
+        const payload = { ...state, last_updated: new Date().toISOString() };
+        await ghApi('/gists/' + id, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            files: { [GIST_FILENAME]: { content: JSON.stringify(payload, null, 2) } },
+          }),
+        });
+        state.last_updated = payload.last_updated;
+        syncStatus = 'ok'; lastSyncAt = new Date();
+      } catch (e) {
+        console.warn('Sync push failed', e);
+        syncStatus = 'error';
+      }
+      updateSyncBadge();
+    }
+
+    function schedulePush() {
+      if (!getSyncPat()) return;
+      clearTimeout(syncPushTimer);
+      syncPushTimer = setTimeout(pushToSync, SYNC_PUSH_DEBOUNCE);
+    }
+
+    function updateSyncBadge() {
+      const badge = document.getElementById('sync-badge');
+      if (!badge) return;
+      if (!getSyncPat()) { badge.style.display = 'none'; return; }
+      badge.style.display = '';
+      let icon = '•', title = 'Sync idle', color = 'var(--text-tertiary)';
+      if (syncStatus === 'syncing') { icon = '⟳'; title = 'Syncing…'; color = '#60a5fa'; }
+      else if (syncStatus === 'ok') { icon = '✓'; title = 'Synced ' + (lastSyncAt ? lastSyncAt.toLocaleTimeString() : ''); color = '#34d399'; }
+      else if (syncStatus === 'error') { icon = '⚠'; title = 'Sync error — see console'; color = '#f43f5e'; }
+      badge.textContent = icon;
+      badge.title = title;
+      badge.style.color = color;
+    }
+
+    async function firstLoadSync() {
+      if (!getSyncPat()) return;
+      try {
+        syncStatus = 'syncing'; updateSyncBadge();
+        const remote = await pullFromSync();
+        if (!remote) { syncStatus = 'ok'; updateSyncBadge(); return; }
+        const localTs = state.last_updated || '';
+        const remoteTs = remote.last_updated || '';
+        if (remoteTs > localTs) {
+          state = migrateState(remote);
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+          render();
+        }
+        syncStatus = 'ok'; lastSyncAt = new Date();
+      } catch (e) {
+        console.warn('Sync pull failed', e);
+        syncStatus = 'error';
+      }
+      updateSyncBadge();
+    }
+
     function exportState() {
       const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -1618,6 +1754,7 @@
       saveTimer = setTimeout(() => {
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
         catch (e) { console.warn('Failed to save', e); }
+        schedulePush();
       }, SAVE_DEBOUNCE);
     }
 
@@ -2427,6 +2564,12 @@
           if (!soundOn) setTimeout(soundAdd, 50);
         },
       }, soundOn ? '🔊' : '🔇'));
+      // Sync status badge (only visible when PAT is set)
+      outer.appendChild(el('span', {
+        id: 'sync-badge',
+        title: 'Sync status',
+        style: { fontSize: '14px', fontFamily: 'JetBrains Mono, monospace', padding: '0 4px', flexShrink: '0' },
+      }, '•'));
       // Settings: export / import / lock
       outer.appendChild(el('button', {
         class: 'icon-btn',
@@ -2438,14 +2581,87 @@
     }
 
     function openSettingsModal() {
+      const currentPat = getSyncPat();
+      const patInput = el('input', {
+        type: 'password',
+        placeholder: 'github_pat_...',
+        value: currentPat,
+        style: { width: '100%' },
+      });
+      const statusLine = el('div', {
+        style: { fontSize: '11px', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-tertiary)', marginBottom: '10px' },
+      }, currentPat
+        ? 'Connected · gist ' + (getSyncGistId() || '(pending)').slice(0, 12) + '…'
+        : 'Not connected. Paste a fine-grained PAT with gist scope.');
+
+      const connectBtn = el('button', {
+        class: 'primary',
+        onClick: async () => {
+          const v = patInput.value.trim();
+          if (!v) {
+            setSyncPat(null); setSyncGistId(null);
+            syncStatus = 'idle'; updateSyncBadge();
+            closeModal();
+            return;
+          }
+          setSyncPat(v);
+          statusLine.textContent = 'Testing token…';
+          try {
+            const id = await ensureSyncGist();
+            statusLine.textContent = 'Connected · gist ' + id.slice(0, 12) + '…';
+            syncStatus = 'syncing'; updateSyncBadge();
+            // Pull first to respect any existing state from another device
+            const remote = await pullFromSync();
+            if (remote) {
+              const localTs = state.last_updated || '';
+              const remoteTs = remote.last_updated || '';
+              if (remoteTs > localTs) {
+                if (confirm('Remote gist has newer state. Replace local with remote?')) {
+                  state = migrateState(remote);
+                  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+                  render();
+                }
+              }
+            }
+            await pushToSync();
+            closeModal();
+          } catch (e) {
+            setSyncPat(null);
+            statusLine.style.color = '#f43f5e';
+            statusLine.textContent = 'Failed: ' + e.message;
+          }
+        },
+      }, currentPat ? 'Update token' : 'Connect');
+
+      const disconnectBtn = currentPat ? el('button', {
+        class: 'danger',
+        onClick: () => {
+          if (!confirm('Disconnect sync? The gist stays on GitHub; local data is kept.')) return;
+          setSyncPat(null); setSyncGistId(null);
+          syncStatus = 'idle'; updateSyncBadge();
+          closeModal();
+        },
+      }, 'Disconnect') : null;
+
       openModal([
         el('h3', {}, 'Settings'),
-        el('p', {}, 'State lives in this browser. Use Export/Import to move it across devices.'),
-        el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' } }, [
+        el('div', { class: 'modal-label' }, 'Cloud sync — GitHub Gist'),
+        statusLine,
+        el('p', { style: { fontSize: '12px' } }, 'Paste a fine-grained PAT with gist scope. State is stored as a private gist named cmd-state.json. Each device that uses the same PAT syncs to the same gist.'),
+        patInput,
+        el('div', { style: { display: 'flex', gap: '6px', marginTop: '4px', marginBottom: '18px' } }, [connectBtn, disconnectBtn].filter(Boolean)),
+
+        el('div', { class: 'modal-label' }, 'Manual export / import'),
+        el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '18px' } }, [
           el('button', { onClick: () => { closeModal(); exportState(); } }, '⤓ Export state as JSON'),
           el('button', { onClick: () => { closeModal(); importState(); } }, '⤒ Import state from JSON'),
+        ]),
+
+        el('div', { class: 'modal-label' }, 'Session'),
+        el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } }, [
           el('button', { class: 'danger', onClick: () => { if (confirm('Lock the app? You\u2019ll need the password to unlock.')) lockApp(); } }, '🔒 Lock now'),
         ]),
+
         el('div', { class: 'modal-actions' }, [el('button', { onClick: closeModal }, 'Close')]),
       ]);
     }
@@ -4950,6 +5166,11 @@
       archiveOldDone();
       render();
       renderSnark();
+      updateSyncBadge();
+      // Kick off a background pull from the gist; re-render if remote is newer
+      if (getSyncPat()) {
+        firstLoadSync().catch(e => console.warn(e));
+      }
       document.addEventListener('click', (e) => {
         if (e.target.closest('.rail-item') || e.target.closest('.context-pill')) {
           snarkLine = pick(SNARK_LINES);
