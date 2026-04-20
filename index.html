@@ -815,11 +815,17 @@
     .due-opt {
       padding: 4px 8px; border-radius: 6px; font-size: 11px;
       font-family: 'JetBrains Mono', monospace; text-transform: uppercase;
-      color: var(--text-tertiary); background: rgba(255, 255, 255, 0.03);
+      color: var(--text-tertiary); background: var(--overlay);
+      border: 1px solid transparent;
       transition: all 150ms var(--ease);
     }
-    .due-opt:hover { color: var(--text-primary); }
-    .due-opt.selected { background: rgba(255, 255, 255, 0.1); color: var(--text-primary); }
+    .due-opt:hover { color: var(--text-primary); background: var(--overlay-strong); }
+    .due-opt.selected {
+      background: linear-gradient(135deg, var(--accent-from), var(--accent-to));
+      color: #fff;
+      border-color: transparent;
+      box-shadow: 0 0 0 1px rgba(124, 58, 237, 0.35);
+    }
 
     .col-add-btn {
       padding: 8px 12px; margin: 0 10px 10px;
