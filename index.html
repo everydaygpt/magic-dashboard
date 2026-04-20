@@ -880,18 +880,21 @@
       -webkit-line-clamp: 3;
       -webkit-box-orient: vertical;
     }
-    .schedule-card-resize {
+    .schedule-card-resize,
+    .schedule-card-resize-top {
       position: absolute;
-      left: 8px; right: 8px; bottom: 0;
+      left: 8px; right: 8px;
       height: 6px;
       cursor: ns-resize;
-      border-radius: 0 0 6px 6px;
       z-index: 6;
     }
-    .schedule-card-resize::after {
+    .schedule-card-resize { bottom: 0; border-radius: 0 0 6px 6px; }
+    .schedule-card-resize-top { top: 0; border-radius: 6px 6px 0 0; }
+    .schedule-card-resize::after,
+    .schedule-card-resize-top::after {
       content: '';
       position: absolute;
-      left: 50%; bottom: 1px;
+      left: 50%;
       width: 20px; height: 2px;
       background: var(--border-strong);
       border-radius: 1px;
@@ -899,8 +902,12 @@
       opacity: 0;
       transition: opacity 120ms;
     }
+    .schedule-card-resize::after { bottom: 1px; }
+    .schedule-card-resize-top::after { top: 1px; }
     .schedule-card.timeline:hover .schedule-card-resize::after,
-    .schedule-card-resize:hover::after { opacity: 1; }
+    .schedule-card.timeline:hover .schedule-card-resize-top::after,
+    .schedule-card-resize:hover::after,
+    .schedule-card-resize-top:hover::after { opacity: 1; }
     body.sched-dragging .schedule-card.timeline:not(.sortable-drag):not(.sortable-chosen) {
       pointer-events: none;
     }
@@ -1628,6 +1635,61 @@
       sessionStorage.removeItem('cmd_auth');
       location.reload();
     }
+    // ---------- Anthropic API (email → tasks) ----------
+    const ANTHROPIC_KEY_STORAGE = 'cmd_anthropic_key';
+    function getAnthropicKey() { return localStorage.getItem(ANTHROPIC_KEY_STORAGE) || ''; }
+    function setAnthropicKey(v) {
+      if (v) localStorage.setItem(ANTHROPIC_KEY_STORAGE, v);
+      else localStorage.removeItem(ANTHROPIC_KEY_STORAGE);
+    }
+
+    async function analyzeEmailWithClaude(emailText) {
+      const key = getAnthropicKey();
+      if (!key) throw new Error('No Anthropic API key set. Open Settings → Anthropic API key.');
+      const today = todayISO();
+      const systemPrompt = 'You extract actionable tasks from emails for Chuck McCue, who runs Interactive Kids (IK). '
+        + 'Return ONLY valid JSON matching the schema described in the user turn. No prose, no code fences.';
+      const userPrompt = 'EMAIL:\n' + emailText.trim() + '\n\n'
+        + 'Today is ' + today + '. Return JSON:\n'
+        + '{\n'
+        + '  "summary": "one-line summary of the email",\n'
+        + '  "tasks": [ { "title": "short imperative", "due": "today" | "tomorrow" | "YYYY-MM-DD" | null, "duration_minutes": number | null, "context": "work" | "personal" | null } ],\n'
+        + '  "project_suggestion": { "name": "short project name", "reason": "why multi-step" } | null,\n'
+        + '  "people": [ "name", ... ]\n'
+        + '}\n\n'
+        + 'Rules:\n'
+        + '- Only extract real actionable asks. Skip FYI-only content.\n'
+        + '- "due" = "today" if the email demands same-day action, "tomorrow" for next-day, or an ISO date if dated explicitly, else null.\n'
+        + '- "context" = "personal" only if the email is clearly about Chuck\'s personal life; otherwise "work".\n'
+        + '- "project_suggestion" only if the email describes a genuinely multi-step initiative (3+ tasks or a kickoff).\n'
+        + '- "people" = humans named who Chuck would collaborate with (exclude Chuck himself).\n'
+        + '- Use empty arrays for none, and null for missing optional values.';
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': key,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 1024,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userPrompt }],
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error('API ' + res.status + ': ' + errText.slice(0, 200));
+      }
+      const data = await res.json();
+      const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
+      const m = text.match(/\{[\s\S]*\}/);
+      if (!m) throw new Error('No JSON in response: ' + text.slice(0, 200));
+      return JSON.parse(m[0]);
+    }
+
     // ---------- Cloud sync (GitHub Gist) ----------
     const GIST_PAT_KEY = 'cmd_gh_pat';
     const GIST_ID_KEY = 'cmd_gist_id';
@@ -2080,6 +2142,9 @@
         done_at: c.done_at || null,
         archived: c.archived === true,
         recurrence: c.recurrence || null,
+        recurrence_day: (typeof c.recurrence_day === 'number' && c.recurrence_day >= 0 && c.recurrence_day <= 6) ? c.recurrence_day : null,
+        last_missed_at: c.last_missed_at || null,
+        missed_count: typeof c.missed_count === 'number' ? c.missed_count : 0,
         source: c.source || null,
         duration_minutes: c.duration_minutes == null ? null : c.duration_minutes,
         scheduled_time: c.scheduled_time || null,
@@ -2766,13 +2831,80 @@
         if (c.done_at) {
           c.done_at = null; c.archived = false;
         } else {
-          c.done_at = now(); c.archived = true;
+          c.done_at = now();
           becameDone = true;
           const projCtx = c.project_id === 'inbox' ? (c.context || null) : (s.projects.find(p => p.id === c.project_id)?.context || null);
           logActivity('card_done', 'Completed "' + c.title + '"', { project_id: c.project_id === 'inbox' ? null : c.project_id, source_type: 'card', source_id: c.id, context: projCtx });
+          if (c.recurrence) {
+            // Single-instance recurrence: advance due date, clear done, stay in bank
+            const baseISO = resolveDueISO(c.due) || todayISO();
+            c.due = nextOccurrenceISO(baseISO, c.recurrence, c.recurrence_day);
+            c.done_at = null;
+            c.archived = false;
+            c.scheduled_time = null;
+          } else {
+            c.archived = true;
+          }
         }
       });
       if (becameDone) setTimeout(soundDone, 0);
+    }
+
+    function resolveDueISO(due) {
+      if (!due) return null;
+      if (due === 'today') return todayISO();
+      if (due === 'tomorrow') return tomorrowISO();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(due)) return due;
+      return null;
+    }
+
+    function nextOccurrenceISO(fromISO, recurrence, recDay) {
+      const d = new Date(fromISO + 'T00:00:00');
+      const today = new Date(todayISO() + 'T00:00:00');
+      // Advance at least one period past today
+      const advance = () => {
+        if (recurrence === 'daily') {
+          d.setDate(d.getDate() + 1);
+        } else if (recurrence === 'weekly') {
+          if (typeof recDay === 'number') {
+            const diff = (recDay - d.getDay() + 7) % 7 || 7;
+            d.setDate(d.getDate() + diff);
+          } else {
+            d.setDate(d.getDate() + 7);
+          }
+        } else if (recurrence === 'monthly') {
+          d.setMonth(d.getMonth() + 1);
+        } else if (recurrence === 'quarterly') {
+          d.setMonth(d.getMonth() + 3);
+        } else {
+          d.setDate(d.getDate() + 1);
+        }
+      };
+      advance();
+      while (d < today) advance();
+      return d.toISOString().slice(0, 10);
+    }
+
+    function rollRecurringCards() {
+      const today = todayISO();
+      let changed = false;
+      state.cards.forEach(c => {
+        if (!c.recurrence || c.archived) return;
+        const dueISO = resolveDueISO(c.due);
+        if (!dueISO || dueISO >= today) return;
+        // Past due: mark previous as missed, advance to next
+        logActivity('card_missed', 'Missed recurring "' + c.title + '" (due ' + dueISO + ')', {
+          project_id: c.project_id === 'inbox' ? null : c.project_id,
+          source_type: 'card', source_id: c.id, context: c.context,
+        });
+        c.missed_count = (c.missed_count || 0) + 1;
+        c.last_missed_at = dueISO;
+        c.due = nextOccurrenceISO(dueISO, c.recurrence, c.recurrence_day);
+        c.done_at = null;
+        c.scheduled_time = null;
+        changed = true;
+      });
+      if (changed) { saveState(); }
     }
     function unlinkPlannerItem(entryId, field, itemKey) {
       setState(s => {
@@ -2965,6 +3097,11 @@
           class: 'rail-add',
           onClick: () => openNewBankCardModal(),
         }, [ el('span', { class: 'rail-icon' }, '+'), el('span', {}, 'Add to bank') ]),
+        el('div', {
+          class: 'rail-add',
+          onClick: () => openEmailAnalyzeModal(),
+          title: 'Paste email → Claude extracts tasks',
+        }, [ el('span', { class: 'rail-icon' }, '📧'), el('span', {}, 'From email') ]),
         bankListEl(),
       ]);
       rail.appendChild(bank);
@@ -3155,6 +3292,23 @@
         },
       }, 'Bake for all devices') : null;
 
+      const anthKeyInput = el('input', {
+        type: 'password',
+        placeholder: 'sk-ant-...',
+        value: getAnthropicKey(),
+        style: { width: '100%' },
+      });
+      const anthSaveBtn = el('button', {
+        class: 'primary',
+        onClick: () => {
+          setAnthropicKey(anthKeyInput.value.trim() || null);
+          anthStatusLine.textContent = getAnthropicKey() ? 'Saved. The From-email button now works.' : 'Cleared.';
+        },
+      }, 'Save key');
+      const anthStatusLine = el('div', {
+        style: { fontSize: '11px', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-tertiary)', marginBottom: '10px' },
+      }, getAnthropicKey() ? 'Connected — From email uses this key in your browser.' : 'Not set. Paste your Anthropic API key to enable email analysis.');
+
       openModal([
         el('h3', {}, 'Settings'),
         el('div', { class: 'modal-label' }, 'Cloud sync — GitHub Gist'),
@@ -3162,6 +3316,12 @@
         el('p', { style: { fontSize: '12px' } }, 'Paste a fine-grained PAT with gist scope. State is stored as a private gist named cmd-state.json. Each device that uses the same PAT syncs to the same gist.'),
         patInput,
         el('div', { style: { display: 'flex', gap: '6px', marginTop: '4px', marginBottom: '18px', flexWrap: 'wrap' } }, [connectBtn, disconnectBtn, bakeBtn].filter(Boolean)),
+
+        el('div', { class: 'modal-label' }, 'Anthropic API key (for email analysis)'),
+        anthStatusLine,
+        el('p', { style: { fontSize: '12px' } }, 'Stored in this browser only. Used by the "From email" button to extract tasks from pasted email content.'),
+        anthKeyInput,
+        el('div', { style: { display: 'flex', gap: '6px', marginTop: '4px', marginBottom: '18px' } }, [anthSaveBtn]),
 
         el('div', { class: 'modal-label' }, 'Manual export / import'),
         el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '18px' } }, [
@@ -3309,6 +3469,7 @@
       const c = state.cards.find(x => x.id === cardId);
       if (!c) return;
       let title = c.title, notes = c.notes || '', due = c.due, context = c.context, recurrence = c.recurrence;
+      let recurrenceDay = typeof c.recurrence_day === 'number' ? c.recurrence_day : null;
       let duration = c.duration_minutes || '';
       const titleInput = el('input', { type: 'text', value: title, onInput: (e) => title = e.target.value });
       const notesArea = el('textarea', { rows: 3, value: '', onInput: (e) => notes = e.target.value, style: { minHeight: '60px' } });
@@ -3337,24 +3498,45 @@
         ctxToggle.querySelector('.' + ctx).classList.add('active');
       });
       const recRow = el('div', { class: 'card-edit-row' });
+      const dayRow = el('div', { class: 'card-edit-row', style: { marginTop: '6px' } });
+      const refreshDayRow = () => {
+        dayRow.style.display = recurrence === 'weekly' ? '' : 'none';
+      };
       const mkRec = (val, label) => {
         const b = el('button', { class: 'due-opt' + (recurrence === val ? ' selected' : ''), onClick: () => {
           recurrence = val;
           recRow.querySelectorAll('.due-opt').forEach(x => x.classList.remove('selected'));
           b.classList.add('selected');
+          refreshDayRow();
         } }, label);
         return b;
       };
-      recRow.appendChild(el('span', { style: { fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.05em' } }, 'Recurs'));
+      const rowLabelStyle2 = { fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.05em' };
+      recRow.appendChild(el('span', { style: rowLabelStyle2 }, 'Recurs'));
       recRow.appendChild(mkRec(null, 'never'));
       recRow.appendChild(mkRec('daily', 'daily'));
       recRow.appendChild(mkRec('weekly', 'weekly'));
       recRow.appendChild(mkRec('monthly', 'monthly'));
+      const dayLabels = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      dayRow.appendChild(el('span', { style: rowLabelStyle2 }, 'On'));
+      dayLabels.forEach((lbl, idx) => {
+        const b = el('button', {
+          class: 'due-opt' + (recurrenceDay === idx ? ' selected' : ''),
+          onClick: () => {
+            recurrenceDay = idx;
+            dayRow.querySelectorAll('.due-opt').forEach(x => x.classList.remove('selected'));
+            b.classList.add('selected');
+          },
+        }, lbl);
+        dayRow.appendChild(b);
+      });
+      refreshDayRow();
       const save = () => {
         if (!title.trim()) { titleInput.focus(); return; }
         const dur = duration === '' || duration == null ? null : parseInt(duration, 10);
         updateCard(cardId, {
           title: title.trim(), notes: notes.trim(), due, context, recurrence,
+          recurrence_day: recurrence === 'weekly' ? recurrenceDay : null,
           duration_minutes: (dur != null && !isNaN(dur) && dur >= 0) ? dur : null,
         });
         closeModal();
@@ -3380,6 +3562,7 @@
           noneBtn, todayBtn, tomorrowBtn, dateInput,
         ]),
         recRow,
+        dayRow,
         el('div', { class: 'modal-label', style: { marginTop: '10px' } }, 'Estimated duration (optional)'),
         durationInput,
         el('div', { class: 'modal-label', style: { marginTop: '10px' } }, 'Subtasks'),
@@ -3608,7 +3791,7 @@
         dataset: { cardId: c.id },
         style,
         onClick: (e) => {
-          if (e.target.closest('.schedule-card-resize')) return;
+          if (e.target.closest('.schedule-card-resize') || e.target.closest('.schedule-card-resize-top')) return;
           if (e.target.closest('.schedule-card-check')) {
             toggleCardDone(c.id);
             return;
@@ -3616,13 +3799,17 @@
           openCardEditModal(c.id);
         },
       }, [
+        layout ? el('div', { class: 'schedule-card-resize-top', title: 'Drag to change start time' }) : null,
         el('span', { class: 'schedule-card-check' }, c.done_at ? '✓' : ''),
         proj ? el('span', { class: 'schedule-card-proj' }) : null,
         el('span', { class: 'schedule-card-title' }, c.title),
         c.duration_minutes ? el('span', { class: 'schedule-card-dur' }, formatDuration(c.duration_minutes)) : null,
         layout ? el('div', { class: 'schedule-card-resize', title: 'Drag to extend' }) : null,
       ]);
-      if (layout) attachScheduleResize(card, c.id);
+      if (layout) {
+        attachScheduleResize(card, c.id);
+        attachScheduleStartResize(card, c.id);
+      }
       return card;
     }
 
@@ -3662,6 +3849,59 @@
           setState(s => {
             const cc = s.cards.find(x => x.id === cardId);
             if (cc) cc.duration_minutes = d;
+          });
+        };
+        document.addEventListener('pointermove', onMove);
+        document.addEventListener('pointerup', onUp);
+      });
+    }
+
+    function attachScheduleStartResize(card, cardId) {
+      const handle = card.querySelector('.schedule-card-resize-top');
+      if (!handle) return;
+      const block = (e) => e.stopPropagation();
+      handle.addEventListener('mousedown', block);
+      handle.addEventListener('touchstart', block);
+      handle.addEventListener('pointerdown', (e) => {
+        if (e.button !== undefined && e.button !== 0) return;
+        e.stopPropagation();
+        e.preventDefault();
+        const c = state.cards.find(x => x.id === cardId);
+        if (!c) return;
+        const HOUR_PX = 44;
+        const SNAP = 15;
+        const startY = e.clientY;
+        const initStart = hourOfScheduled(c) * 60 + minuteOfScheduled(c);
+        const initDur = c.duration_minutes || 60;
+        const initEnd = initStart + initDur;
+        const minStart = 5 * 60;      // earliest 5 AM
+        const maxStart = initEnd - SNAP;
+        const slotHourMin = Math.floor(initStart / 60) * 60;
+        card.classList.add('resizing');
+        const compute = (ev) => {
+          const dy = ev.clientY - startY;
+          const delta = Math.round(dy / HOUR_PX * 60 / SNAP) * SNAP;
+          const newStart = Math.max(minStart, Math.min(maxStart, initStart + delta));
+          return { newStart, newDur: initEnd - newStart };
+        };
+        const onMove = (ev) => {
+          const { newStart, newDur } = compute(ev);
+          card.style.top = ((newStart - slotHourMin) / 60 * HOUR_PX) + 'px';
+          card.style.height = Math.max(26, newDur / 60 * HOUR_PX - 2) + 'px';
+        };
+        const onUp = (ev) => {
+          document.removeEventListener('pointermove', onMove);
+          document.removeEventListener('pointerup', onUp);
+          card.classList.remove('resizing');
+          const { newStart, newDur } = compute(ev);
+          const newHour = Math.floor(newStart / 60);
+          const newMin = newStart % 60;
+          setState(s => {
+            const cc = s.cards.find(x => x.id === cardId);
+            if (!cc) return;
+            const date = cc.scheduled_time ? cc.scheduled_time.slice(0, 10) : currentPlanDate;
+            cc.scheduled_time = date + 'T' + String(newHour).padStart(2, '0') + ':' + String(newMin).padStart(2, '0') + ':00';
+            cc.duration_minutes = newDur;
           });
         };
         document.addEventListener('pointermove', onMove);
@@ -5265,7 +5505,9 @@
     function renderMiniTodayList(entry) {
       const taskIds = plannerLinkedCardIds(entry);
       const today = todayISO();
+      const tomorrow = tomorrowISO();
       const ctxOk = (c) => contextMatches(contextOf(c, 'card'));
+      const isDueTomorrow = (c) => c.due === 'tomorrow' || c.due === tomorrow;
       const plannerCards = state.cards.filter(c => taskIds.includes(c.id) && ctxOk(c) && (isDueToday(c) || !c.due));
       const otherDueCards = state.cards.filter(c => {
         if (taskIds.includes(c.id)) return false;
@@ -5274,30 +5516,54 @@
         if (!ctxOk(c)) return false;
         return isDueToday(c);
       });
-      const all = [...plannerCards, ...otherDueCards];
-      const doneCount = all.filter(c => c.done_at).length;
+      const tomorrowCards = state.cards.filter(c => {
+        if (c.archived) return false;
+        if (!ctxOk(c)) return false;
+        return isDueTomorrow(c);
+      });
+      const todayAll = [...plannerCards, ...otherDueCards];
+      const doneCount = todayAll.filter(c => c.done_at).length;
 
       const panel = el('div', { class: 'rail-panel' });
       panel.appendChild(el('div', { class: 'rail-panel-head' }, [
         el('div', { class: 'rail-panel-title' }, 'Today'),
-        all.length > 0 ? el('span', {
+        todayAll.length > 0 ? el('span', {
           style: { fontSize: '10px', padding: '2px 6px', borderRadius: '4px',
             background: 'linear-gradient(135deg, var(--accent-from), var(--accent-to))',
             color: 'white', fontWeight: '600', fontFamily: 'JetBrains Mono, monospace' },
-        }, doneCount + ' / ' + all.length) : null,
+        }, doneCount + ' / ' + todayAll.length) : null,
       ]));
-      if (all.length === 0) {
+      if (todayAll.length === 0) {
         panel.appendChild(el('div', { class: 'files-empty', style: { padding: '10px', fontSize: '12px' } }, 'No tasks for today yet.'));
       } else {
         const list = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } });
-        all.forEach(c => list.appendChild(miniTodayRowEl(c)));
+        todayAll.forEach(c => list.appendChild(miniTodayRowEl(c)));
         panel.appendChild(list);
+      }
+      if (tomorrowCards.length) {
+        panel.appendChild(el('div', {
+          style: { fontSize: '10px', fontFamily: 'JetBrains Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-tertiary)', marginTop: '10px', marginBottom: '4px' },
+        }, 'Tomorrow · ' + tomorrowCards.length));
+        const tlist = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } });
+        tomorrowCards.forEach(c => tlist.appendChild(miniTodayRowEl(c)));
+        panel.appendChild(tlist);
       }
       return panel;
     }
 
+    function formatDueLabel(due) {
+      if (!due) return '';
+      if (due === 'today') return 'Today';
+      if (due === 'tomorrow') return 'Tomorrow';
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(due)) return '';
+      if (due === todayISO()) return 'Today';
+      if (due === tomorrowISO()) return 'Tomorrow';
+      return new Date(due + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+    }
+
     function miniTodayRowEl(c) {
       const proj = c.project_id && c.project_id !== 'inbox' ? projectById(c.project_id) : null;
+      const dueLabel = formatDueLabel(c.due);
       return el('div', {
         class: 'today-row' + (c.done_at ? ' done' : ''),
         style: { padding: '6px 4px', borderRadius: '6px', fontSize: '12px' },
@@ -5307,12 +5573,13 @@
         el('div', { class: 'today-check', style: { width: '16px', height: '16px' } }, c.done_at ? '✓' : ''),
         el('div', { style: { flex: '1', minWidth: '0' } }, [
           el('div', { class: 'today-title', style: { fontSize: '12px' } }, c.title),
-          proj ? el('div', {
+          (proj || dueLabel) ? el('div', {
             class: 'today-meta',
-            style: { fontSize: '9px', '--item-from': proj.accent.from, '--item-to': proj.accent.to },
+            style: { fontSize: '9px', '--item-from': proj ? proj.accent.from : '#7c3aed', '--item-to': proj ? proj.accent.to : '#ec4899' },
           }, [
-            el('span', { class: 'today-project-dot', style: { width: '5px', height: '5px' } }),
-            el('span', {}, proj.name),
+            proj ? el('span', { class: 'today-project-dot', style: { width: '5px', height: '5px' } }) : null,
+            proj ? el('span', {}, proj.name) : null,
+            dueLabel ? el('span', { style: { color: 'var(--text-tertiary)', marginLeft: proj ? '6px' : '0' } }, dueLabel) : null,
           ]) : null,
         ]),
       ]);
@@ -5535,6 +5802,145 @@
         ]),
       ]);
       setTimeout(() => titleInput.focus(), 50);
+    }
+
+    function openEmailAnalyzeModal() {
+      if (!getAnthropicKey()) {
+        openModal([
+          el('h3', {}, 'Add Anthropic API key first'),
+          el('p', {}, 'Open Settings (⋯) and paste your Anthropic API key to enable email analysis.'),
+          el('div', { class: 'modal-actions' }, [
+            el('button', { onClick: closeModal }, 'Close'),
+            el('button', { class: 'primary', onClick: () => { closeModal(); openSettingsModal(); } }, 'Open Settings'),
+          ]),
+        ]);
+        return;
+      }
+      let stage = 'input';
+      let analysis = null;
+      let selection = { tasks: [], people: [], makeProject: false };
+      const backdrop = el('div', { class: 'modal-backdrop' });
+      const modal = el('div', { class: 'modal', style: { maxWidth: '640px' } });
+      backdrop.appendChild(modal);
+      backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closeModal(); });
+      const modals = document.getElementById('modals');
+      clearNode(modals); modals.appendChild(backdrop);
+
+      const rebuild = () => {
+        clearNode(modal);
+        if (stage === 'input') {
+          const textarea = el('textarea', {
+            placeholder: 'Paste email body (subject + body is fine)',
+            style: { width: '100%', minHeight: '220px', fontFamily: 'inherit', fontSize: '13px' },
+          });
+          const analyzeBtn = el('button', { class: 'primary', onClick: async () => {
+            const text = textarea.value.trim();
+            if (!text) { textarea.focus(); return; }
+            stage = 'loading';
+            rebuild();
+            try {
+              analysis = await analyzeEmailWithClaude(text);
+              selection = {
+                tasks: (analysis.tasks || []).map(() => true),
+                people: (analysis.people || []).map(() => true),
+                makeProject: !!analysis.project_suggestion,
+              };
+              stage = 'review';
+            } catch (e) {
+              stage = 'error';
+              analysis = { error: e.message };
+            }
+            rebuild();
+          } }, 'Analyze');
+          modal.appendChild(el('h3', {}, 'Add from email'));
+          modal.appendChild(el('p', { style: { fontSize: '12px', color: 'var(--text-tertiary)' } }, 'Paste an email. Claude will pull out tasks, suggest a project if it smells like one, and list the humans to add.'));
+          modal.appendChild(textarea);
+          modal.appendChild(el('div', { class: 'modal-actions' }, [
+            el('button', { onClick: closeModal }, 'Cancel'),
+            analyzeBtn,
+          ]));
+          setTimeout(() => textarea.focus(), 30);
+        } else if (stage === 'loading') {
+          modal.appendChild(el('h3', {}, 'Analyzing…'));
+          modal.appendChild(el('p', { style: { color: 'var(--text-tertiary)' } }, 'Claude is reading the email.'));
+        } else if (stage === 'error') {
+          modal.appendChild(el('h3', {}, 'Analysis failed'));
+          modal.appendChild(el('p', { style: { color: '#f43f5e', fontFamily: 'JetBrains Mono, monospace', fontSize: '12px' } }, analysis.error));
+          modal.appendChild(el('div', { class: 'modal-actions' }, [
+            el('button', { onClick: closeModal }, 'Close'),
+            el('button', { class: 'primary', onClick: () => { stage = 'input'; rebuild(); } }, 'Try again'),
+          ]));
+        } else if (stage === 'review') {
+          modal.appendChild(el('h3', {}, 'Extracted from email'));
+          if (analysis.summary) modal.appendChild(el('p', { style: { fontSize: '13px', color: 'var(--text-secondary)' } }, analysis.summary));
+
+          if (analysis.tasks && analysis.tasks.length) {
+            modal.appendChild(el('div', { class: 'modal-label', style: { marginTop: '10px' } }, 'Tasks'));
+            const taskList = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } });
+            analysis.tasks.forEach((t, i) => {
+              const cb = el('input', { type: 'checkbox', onChange: (e) => { selection.tasks[i] = e.target.checked; } });
+              cb.checked = selection.tasks[i];
+              const titleI = el('input', { type: 'text', value: t.title, onInput: (e) => t.title = e.target.value, style: { flex: '1', fontSize: '13px' } });
+              const meta = [];
+              if (t.due) meta.push(t.due);
+              if (t.duration_minutes) meta.push(formatDuration(t.duration_minutes));
+              if (t.context) meta.push(t.context);
+              const row = el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, [
+                cb, titleI,
+                meta.length ? el('span', { style: { fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace' } }, meta.join(' · ')) : null,
+              ]);
+              taskList.appendChild(row);
+            });
+            modal.appendChild(taskList);
+          }
+
+          if (analysis.project_suggestion) {
+            modal.appendChild(el('div', { class: 'modal-label', style: { marginTop: '12px' } }, 'Suggested project'));
+            const cb = el('input', { type: 'checkbox', onChange: (e) => { selection.makeProject = e.target.checked; } });
+            cb.checked = selection.makeProject;
+            modal.appendChild(el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, [
+              cb,
+              el('strong', {}, analysis.project_suggestion.name),
+              el('span', { style: { fontSize: '11px', color: 'var(--text-tertiary)' } }, '— ' + analysis.project_suggestion.reason),
+            ]));
+          }
+
+          if (analysis.people && analysis.people.length) {
+            modal.appendChild(el('div', { class: 'modal-label', style: { marginTop: '12px' } }, 'People'));
+            const peopleRow = el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px' } });
+            analysis.people.forEach((name, i) => {
+              const cb = el('input', { type: 'checkbox', onChange: (e) => { selection.people[i] = e.target.checked; } });
+              cb.checked = selection.people[i];
+              peopleRow.appendChild(el('label', { style: { display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '12px', padding: '3px 8px', borderRadius: '999px', border: '1px solid var(--border)' } }, [cb, name]));
+            });
+            modal.appendChild(peopleRow);
+          }
+
+          const commit = () => {
+            const tasks = (analysis.tasks || []).filter((_, i) => selection.tasks[i]);
+            const people = (analysis.people || []).filter((_, i) => selection.people[i]);
+            let projectId = null;
+            if (selection.makeProject && analysis.project_suggestion) {
+              projectId = addProject(analysis.project_suggestion.name, ACCENT_PALETTE[0], 'work');
+              people.forEach(n => addProjectPerson(projectId, n));
+            }
+            tasks.forEach(t => {
+              if (findLiveCardByTitle(t.title)) return;
+              const existing = addBankCard(t.title, t.context || 'work');
+              if (existing) updateCard(existing.id, {
+                due: t.due || null,
+                duration_minutes: t.duration_minutes || null,
+              });
+            });
+            closeModal();
+          };
+          modal.appendChild(el('div', { class: 'modal-actions' }, [
+            el('button', { onClick: () => { stage = 'input'; rebuild(); } }, 'Back'),
+            el('button', { class: 'primary', onClick: commit }, 'Add selected'),
+          ]));
+        }
+      };
+      rebuild();
     }
 
     function openAccentModal(proj) {
@@ -6115,6 +6521,7 @@
     // ---------- Init ----------
     function init() {
       archiveOldDone();
+      rollRecurringCards();
       render();
       renderSnark();
       updateSyncBadge();
