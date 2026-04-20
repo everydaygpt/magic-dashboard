@@ -2176,6 +2176,8 @@
         archived: c.archived === true,
         recurrence: c.recurrence || null,
         recurrence_day: (typeof c.recurrence_day === 'number' && c.recurrence_day >= 0 && c.recurrence_day <= 6) ? c.recurrence_day : null,
+        recurrence_interval: typeof c.recurrence_interval === 'number' && c.recurrence_interval > 0 ? c.recurrence_interval : null,
+        recurrence_unit: ['day','week','month','year'].includes(c.recurrence_unit) ? c.recurrence_unit : null,
         last_missed_at: c.last_missed_at || null,
         missed_count: typeof c.missed_count === 'number' ? c.missed_count : 0,
         source: c.source || null,
@@ -2872,7 +2874,7 @@
           if (c.recurrence) {
             // Single-instance recurrence: advance due date, clear done, stay in bank
             const baseISO = resolveDueISO(c.due) || todayISO();
-            c.due = nextOccurrenceISO(baseISO, c.recurrence, c.recurrence_day);
+            c.due = nextOccurrenceISO(baseISO, c.recurrence, c.recurrence_day, { interval: c.recurrence_interval, unit: c.recurrence_unit });
             c.done_at = null;
             c.archived = false;
             c.scheduled_time = null;
@@ -2892,10 +2894,11 @@
       return null;
     }
 
-    function nextOccurrenceISO(fromISO, recurrence, recDay) {
+    function nextOccurrenceISO(fromISO, recurrence, recDay, custom) {
       const d = new Date(fromISO + 'T00:00:00');
       const today = new Date(todayISO() + 'T00:00:00');
-      // Advance at least one period past today
+      const customInterval = Math.max(1, Number(custom && custom.interval) || 1);
+      const customUnit = (custom && custom.unit) || 'day';
       const advance = () => {
         if (recurrence === 'daily') {
           d.setDate(d.getDate() + 1);
@@ -2910,6 +2913,11 @@
           d.setMonth(d.getMonth() + 1);
         } else if (recurrence === 'quarterly') {
           d.setMonth(d.getMonth() + 3);
+        } else if (recurrence === 'custom') {
+          if (customUnit === 'week') d.setDate(d.getDate() + 7 * customInterval);
+          else if (customUnit === 'month') d.setMonth(d.getMonth() + customInterval);
+          else if (customUnit === 'year') d.setFullYear(d.getFullYear() + customInterval);
+          else d.setDate(d.getDate() + customInterval);
         } else {
           d.setDate(d.getDate() + 1);
         }
@@ -2933,7 +2941,7 @@
         });
         c.missed_count = (c.missed_count || 0) + 1;
         c.last_missed_at = dueISO;
-        c.due = nextOccurrenceISO(dueISO, c.recurrence, c.recurrence_day);
+        c.due = nextOccurrenceISO(dueISO, c.recurrence, c.recurrence_day, { interval: c.recurrence_interval, unit: c.recurrence_unit });
         c.done_at = null;
         c.scheduled_time = null;
         changed = true;
@@ -3460,9 +3468,15 @@
       }
       if (c.recurrence) {
         const dayLabels = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-        const recLabel = c.recurrence === 'weekly' && typeof c.recurrence_day === 'number'
-          ? 'Weekly · ' + dayLabels[c.recurrence_day]
-          : c.recurrence.charAt(0).toUpperCase() + c.recurrence.slice(1);
+        let recLabel;
+        if (c.recurrence === 'weekly' && typeof c.recurrence_day === 'number') {
+          recLabel = 'Weekly · ' + dayLabels[c.recurrence_day];
+        } else if (c.recurrence === 'custom' && c.recurrence_interval && c.recurrence_unit) {
+          const n = c.recurrence_interval;
+          recLabel = 'Every ' + n + ' ' + c.recurrence_unit + (n === 1 ? '' : 's');
+        } else {
+          recLabel = c.recurrence.charAt(0).toUpperCase() + c.recurrence.slice(1);
+        }
         pills.push(el('span', { class: 'rec-pill' }, '↻ ' + recLabel));
       }
       if (c.missed_count) {
@@ -3555,6 +3569,8 @@
       if (!c) return;
       let title = c.title, notes = c.notes || '', due = c.due, context = c.context, recurrence = c.recurrence;
       let recurrenceDay = typeof c.recurrence_day === 'number' ? c.recurrence_day : null;
+      let recurrenceInterval = typeof c.recurrence_interval === 'number' && c.recurrence_interval > 0 ? c.recurrence_interval : 2;
+      let recurrenceUnit = ['day','week','month','year'].includes(c.recurrence_unit) ? c.recurrence_unit : 'week';
       let duration = c.duration_minutes || '';
       let timeHHMM = extractTimeHHMM(c.scheduled_time);
       const titleInput = el('input', { type: 'text', value: title, onInput: (e) => title = e.target.value });
@@ -3585,15 +3601,17 @@
       });
       const recRow = el('div', { class: 'card-edit-row' });
       const dayRow = el('div', { class: 'card-edit-row', style: { marginTop: '6px' } });
-      const refreshDayRow = () => {
+      const customRow = el('div', { class: 'card-edit-row', style: { marginTop: '6px' } });
+      const refreshSubRows = () => {
         dayRow.style.display = recurrence === 'weekly' ? '' : 'none';
+        customRow.style.display = recurrence === 'custom' ? '' : 'none';
       };
       const mkRec = (val, label) => {
         const b = el('button', { class: 'due-opt' + (recurrence === val ? ' selected' : ''), onClick: () => {
           recurrence = val;
           recRow.querySelectorAll('.due-opt').forEach(x => x.classList.remove('selected'));
           b.classList.add('selected');
-          refreshDayRow();
+          refreshSubRows();
         } }, label);
         return b;
       };
@@ -3603,6 +3621,7 @@
       recRow.appendChild(mkRec('daily', 'daily'));
       recRow.appendChild(mkRec('weekly', 'weekly'));
       recRow.appendChild(mkRec('monthly', 'monthly'));
+      recRow.appendChild(mkRec('custom', 'custom'));
       const dayLabels = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
       dayRow.appendChild(el('span', { style: rowLabelStyle2 }, 'On'));
       dayLabels.forEach((lbl, idx) => {
@@ -3616,7 +3635,32 @@
         }, lbl);
         dayRow.appendChild(b);
       });
-      refreshDayRow();
+      customRow.appendChild(el('span', { style: rowLabelStyle2 }, 'Every'));
+      const intervalInput = el('input', {
+        type: 'number', min: '1', step: '1', value: String(recurrenceInterval),
+        onInput: (e) => {
+          const v = parseInt(e.target.value, 10);
+          if (!isNaN(v) && v > 0) recurrenceInterval = v;
+        },
+        style: { width: '60px', padding: '4px 6px', borderRadius: '6px', background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--text-secondary)', fontSize: '11px' },
+      });
+      customRow.appendChild(intervalInput);
+      const mkUnit = (val, label) => {
+        const b = el('button', {
+          class: 'due-opt' + (recurrenceUnit === val ? ' selected' : ''),
+          onClick: () => {
+            recurrenceUnit = val;
+            customRow.querySelectorAll('.due-opt').forEach(x => x.classList.remove('selected'));
+            b.classList.add('selected');
+          },
+        }, label);
+        return b;
+      };
+      customRow.appendChild(mkUnit('day', 'days'));
+      customRow.appendChild(mkUnit('week', 'weeks'));
+      customRow.appendChild(mkUnit('month', 'months'));
+      customRow.appendChild(mkUnit('year', 'years'));
+      refreshSubRows();
       const timeInput = el('input', {
         type: 'time', step: 900, value: timeHHMM,
         onChange: (e) => { timeHHMM = e.target.value || ''; },
@@ -3629,6 +3673,8 @@
         updateCard(cardId, {
           title: title.trim(), notes: notes.trim(), due, context, recurrence,
           recurrence_day: recurrence === 'weekly' ? recurrenceDay : null,
+          recurrence_interval: recurrence === 'custom' ? recurrenceInterval : null,
+          recurrence_unit: recurrence === 'custom' ? recurrenceUnit : null,
           duration_minutes: (dur != null && !isNaN(dur) && dur >= 0) ? dur : null,
           scheduled_time: schedTime,
         });
@@ -3661,6 +3707,7 @@
         ]),
         recRow,
         dayRow,
+        customRow,
         el('div', { class: 'modal-label', style: { marginTop: '10px' } }, 'Estimated duration (optional)'),
         durationInput,
         el('div', { class: 'modal-label', style: { marginTop: '10px' } }, 'Subtasks'),
