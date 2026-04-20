@@ -376,6 +376,83 @@
       border: 1px solid rgba(52, 211, 153, 0.3);
     }
 
+    /* Subtasks */
+    .subtasks-wrap {
+      display: flex; flex-direction: column; gap: 4px;
+      background: var(--overlay);
+      border-radius: 10px;
+      padding: 8px;
+      margin-top: 6px;
+    }
+    .subtask-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 4px 6px; border-radius: 6px;
+      font-size: 13px;
+      transition: background 120ms;
+    }
+    .subtask-row:hover { background: var(--overlay-strong); }
+    .subtask-check {
+      width: 16px; height: 16px; flex-shrink: 0;
+      border: 1.5px solid var(--border-strong);
+      border-radius: 4px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; color: transparent;
+      cursor: pointer;
+      transition: all 150ms var(--spring);
+    }
+    .subtask-check.checked {
+      background: linear-gradient(135deg, var(--accent-from), var(--accent-to));
+      border-color: transparent; color: white;
+    }
+    .subtask-title {
+      flex: 1; outline: 0; min-width: 0;
+      word-break: break-word;
+    }
+    .subtask-title:focus {
+      background: rgba(255, 255, 255, 0.04);
+      border-radius: 4px;
+      padding: 0 4px;
+      margin: 0 -4px;
+    }
+    .subtask-row.done .subtask-title {
+      color: var(--text-tertiary);
+      text-decoration: line-through;
+    }
+    .subtask-actions { display: flex; gap: 2px; opacity: 0; transition: opacity 150ms; flex-shrink: 0; }
+    .subtask-row:hover .subtask-actions { opacity: 1; }
+    .subtask-actions button {
+      width: 20px; height: 20px; border-radius: 4px;
+      font-size: 11px; color: var(--text-tertiary);
+    }
+    .subtask-actions button:hover { color: var(--text-primary); background: var(--overlay-strong); }
+    .subtask-actions button.danger:hover { color: var(--danger); }
+    .subtask-children { margin-left: 22px; display: flex; flex-direction: column; gap: 4px; }
+
+    .subtask-bulk {
+      display: flex; flex-direction: column; gap: 6px;
+      padding: 8px; margin-top: 6px;
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+    }
+    .subtask-bulk textarea {
+      width: 100%; min-height: 40px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-size: 12px;
+    }
+    .subtask-bulk .row { display: flex; gap: 6px; align-items: center; justify-content: space-between; }
+    .subtask-bulk .hint {
+      font-size: 10px; color: var(--text-tertiary);
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .subtask-bulk button {
+      padding: 4px 10px; font-size: 11px;
+      background: linear-gradient(135deg, var(--accent-from), var(--accent-to));
+      color: white; border-radius: 6px; font-weight: 600;
+    }
+
     /* Planner history */
     .history-row {
       display: flex; align-items: center; gap: 12px;
@@ -1786,8 +1863,76 @@
         recurrence: null,
         duration_minutes: null,
         scheduled_time: null,
+        subtasks: [],
         created_at: now(),
       };
+    }
+
+    // ---------- Subtask helpers (recursive) ----------
+    function findSubtaskInTree(tree, id) {
+      for (let i = 0; i < tree.length; i++) {
+        if (tree[i].id === id) return { node: tree[i], parentArr: tree, index: i };
+        const found = findSubtaskInTree(tree[i].subtasks || [], id);
+        if (found) return found;
+      }
+      return null;
+    }
+    function countSubtaskProgress(tree) {
+      let done = 0, total = 0;
+      function walk(arr) {
+        for (const s of arr) {
+          total++;
+          if (s.done) done++;
+          if (s.subtasks && s.subtasks.length) walk(s.subtasks);
+        }
+      }
+      walk(tree || []);
+      return { done, total };
+    }
+    function addSubtask(cardId, parentSubtaskId, title) {
+      const t = (title || '').trim();
+      if (!t) return;
+      setState(s => {
+        const c = s.cards.find(x => x.id === cardId);
+        if (!c) return;
+        c.subtasks = c.subtasks || [];
+        const newSub = { id: uid('st'), title: t, done: false, subtasks: [] };
+        if (parentSubtaskId) {
+          const res = findSubtaskInTree(c.subtasks, parentSubtaskId);
+          if (res) {
+            res.node.subtasks = res.node.subtasks || [];
+            res.node.subtasks.push(newSub);
+          }
+        } else {
+          c.subtasks.push(newSub);
+        }
+      });
+    }
+    function toggleSubtask(cardId, subtaskId) {
+      setState(s => {
+        const c = s.cards.find(x => x.id === cardId);
+        if (!c) return;
+        const res = findSubtaskInTree(c.subtasks || [], subtaskId);
+        if (res) res.node.done = !res.node.done;
+      });
+    }
+    function deleteSubtask(cardId, subtaskId) {
+      setState(s => {
+        const c = s.cards.find(x => x.id === cardId);
+        if (!c) return;
+        const res = findSubtaskInTree(c.subtasks || [], subtaskId);
+        if (res) res.parentArr.splice(res.index, 1);
+      });
+    }
+    function editSubtaskTitle(cardId, subtaskId, title) {
+      const t = (title || '').trim();
+      if (!t) return;
+      setState(s => {
+        const c = s.cards.find(x => x.id === cardId);
+        if (!c) return;
+        const res = findSubtaskInTree(c.subtasks || [], subtaskId);
+        if (res) res.node.title = t;
+      });
     }
 
     function parseDueFromText(text) {
@@ -1867,6 +2012,7 @@
         source: c.source || null,
         duration_minutes: c.duration_minutes == null ? null : c.duration_minutes,
         scheduled_time: c.scheduled_time || null,
+        subtasks: Array.isArray(c.subtasks) ? c.subtasks : [],
       }));
       s.activity_log = s.activity_log || [];
       s.notes = s.notes || [];
@@ -2940,6 +3086,84 @@
       return node;
     }
 
+    function subtaskSectionEl(cardId) {
+      const wrap = el('div', { class: 'subtasks-wrap' });
+
+      const rebuild = () => {
+        clearNode(wrap);
+        const c = state.cards.find(x => x.id === cardId);
+        if (!c) return;
+        const tree = c.subtasks || [];
+        if (tree.length === 0) {
+          wrap.appendChild(el('div', {
+            style: { padding: '8px', color: 'var(--text-tertiary)', fontSize: '12px', fontStyle: 'italic' },
+          }, 'No subtasks yet. Paste below or type one per line.'));
+        }
+        const renderNodes = (arr, parentEl) => {
+          arr.forEach(st => {
+            const row = el('div', { class: 'subtask-row' + (st.done ? ' done' : '') }, [
+              el('div', {
+                class: 'subtask-check' + (st.done ? ' checked' : ''),
+                onClick: () => { toggleSubtask(cardId, st.id); rebuild(); },
+              }, st.done ? '✓' : ''),
+              el('span', {
+                class: 'subtask-title',
+                contenteditable: 'true',
+                onBlur: (e) => { const v = e.target.textContent.trim(); if (v && v !== st.title) { editSubtaskTitle(cardId, st.id, v); rebuild(); } else { e.target.textContent = st.title; } },
+                onKeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } },
+              }, st.title),
+              el('div', { class: 'subtask-actions' }, [
+                el('button', {
+                  title: 'Add sub-subtask',
+                  onClick: () => {
+                    const t = prompt('Sub-subtask:');
+                    if (t && t.trim()) { addSubtask(cardId, st.id, t.trim()); rebuild(); }
+                  },
+                }, '+'),
+                el('button', {
+                  class: 'danger', title: 'Delete',
+                  onClick: () => { deleteSubtask(cardId, st.id); rebuild(); },
+                }, '×'),
+              ]),
+            ]);
+            parentEl.appendChild(row);
+            if (st.subtasks && st.subtasks.length) {
+              const children = el('div', { class: 'subtask-children' });
+              renderNodes(st.subtasks, children);
+              parentEl.appendChild(children);
+            }
+          });
+        };
+        renderNodes(tree, wrap);
+
+        // Bulk add
+        const bulk = el('textarea', {
+          placeholder: 'Add subtasks — one per line. Paste works.',
+          onKeydown: (e) => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); commitBulk(); }
+          },
+        });
+        const commitBulk = () => {
+          const lines = bulk.value.split('\n').map(l => l.trim()).filter(Boolean);
+          if (!lines.length) return;
+          lines.forEach(line => addSubtask(cardId, null, line));
+          bulk.value = '';
+          rebuild();
+        };
+        const bulkWrap = el('div', { class: 'subtask-bulk' }, [
+          bulk,
+          el('div', { class: 'row' }, [
+            el('span', { class: 'hint' }, 'Ctrl/Cmd+Enter or button to submit all lines'),
+            el('button', { onClick: commitBulk }, '+ Add'),
+          ]),
+        ]);
+        wrap.appendChild(bulkWrap);
+      };
+
+      rebuild();
+      return wrap;
+    }
+
     function openCardEditModal(cardId) {
       const c = state.cards.find(x => x.id === cardId);
       if (!c) return;
@@ -3017,6 +3241,8 @@
         recRow,
         el('div', { class: 'modal-label', style: { marginTop: '10px' } }, 'Estimated duration (optional)'),
         durationInput,
+        el('div', { class: 'modal-label', style: { marginTop: '10px' } }, 'Subtasks'),
+        subtaskSectionEl(cardId),
         el('div', { class: 'modal-actions' }, [
           el('button', { class: 'danger', onClick: del }, 'Delete'),
           el('div', { style: { flex: 1 } }),
@@ -4621,6 +4847,10 @@
         if (c.today_slot) footer.appendChild(el('div', { class: 'card-pill plan' }, c.today_slot === 'priority' ? '⭐ Top 3' : c.today_slot));
         if (c.recurrence) footer.appendChild(el('div', { class: 'card-pill', title: 'Recurring: ' + c.recurrence }, '↺ ' + c.recurrence));
         if (c.duration_minutes) footer.appendChild(el('div', { class: 'card-pill', title: 'Estimated duration' }, '⏱ ' + formatDuration(c.duration_minutes)));
+        if (c.subtasks && c.subtasks.length) {
+          const { done, total } = countSubtaskProgress(c.subtasks);
+          footer.appendChild(el('div', { class: 'card-pill', title: done + ' of ' + total + ' subtasks complete' }, '☑ ' + done + ' / ' + total));
+        }
         node.appendChild(footer);
         return node;
       }
@@ -4670,6 +4900,13 @@
           el('button', { class: 'due-opt', onClick: (e) => { e.stopPropagation(); removeCardFromPlan(c.id); } }, 'Remove'),
         ]));
       }
+      node.appendChild(el('div', {
+        style: { fontSize: '10px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '10px 0 4px' },
+        onClick: (e) => e.stopPropagation(),
+      }, 'Subtasks'));
+      const subsWrap = subtaskSectionEl(c.id);
+      subsWrap.addEventListener('click', (e) => e.stopPropagation());
+      node.appendChild(subsWrap);
       node.appendChild(el('div', { class: 'list-item-actions' }, [
         el('button', {
           class: 'icon-btn danger', title: 'Delete',
