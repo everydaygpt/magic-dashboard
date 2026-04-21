@@ -1202,11 +1202,27 @@
     .plan-card {
       background: rgba(50, 50, 82, 0.8);
       border: 1px solid var(--border); border-radius: 10px;
-      padding: 10px 12px; position: relative;
+      padding: 10px 12px 10px 34px; position: relative;
       cursor: pointer;
       transition: background 150ms var(--ease);
     }
     .plan-card:hover { background: rgba(60, 60, 100, 0.9); }
+    .plan-card.done { opacity: 0.55; }
+    .plan-card.done .plan-card-title { text-decoration: line-through; }
+    .plan-card-check {
+      position: absolute; top: 10px; left: 10px;
+      width: 16px; height: 16px;
+      border: 1.5px solid var(--border-strong); border-radius: 4px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; color: transparent;
+      cursor: pointer;
+      transition: all 120ms var(--ease);
+    }
+    .plan-card-check:hover { border-color: var(--accent-from); }
+    .plan-card.done .plan-card-check {
+      background: linear-gradient(135deg, var(--accent-from), var(--accent-to));
+      border-color: transparent; color: white;
+    }
     .plan-card-proj {
       display: inline-flex; align-items: center; gap: 6px;
       font-size: 10px; color: var(--text-tertiary);
@@ -4442,13 +4458,19 @@
     function planCardEl(c) {
       const proj = c.project_id && c.project_id !== 'inbox' ? projectById(c.project_id) : null;
       const node = el('div', {
-        class: 'plan-card',
+        class: 'plan-card' + (c.done_at ? ' done' : ''),
         style: proj ? { '--item-from': proj.accent.from, '--item-to': proj.accent.to } : {},
-        onClick: () => {
+        onClick: (e) => {
+          if (e.target.closest('.plan-card-check') || e.target.closest('.plan-card-remove')) return;
           if (proj) { state.ui.active_view = proj.id; saveState(); expandedCardId = c.id; render(); }
           else { expandedCardId = c.id; render(); }
         },
       });
+      node.appendChild(el('div', {
+        class: 'plan-card-check',
+        title: c.done_at ? 'Completed — click to undo' : 'Mark done',
+        onClick: (e) => { e.stopPropagation(); toggleCardDone(c.id); },
+      }, c.done_at ? '✓' : ''));
       node.appendChild(el('div', { class: 'plan-card-proj' }, [
         proj ? el('span', { class: 'plan-card-dot' }) : null,
         el('span', {}, proj ? proj.name : 'Bank'),
