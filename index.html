@@ -129,6 +129,11 @@
     }
     html[data-theme="personal"] .schedule { background: rgba(249, 244, 234, 0.6); }
     html[data-theme="personal"] .schedule-row.now { background: rgba(194, 65, 12, 0.08); }
+    html[data-theme="personal"] .schedule-hour {
+      color: #1F1B16;
+      background: rgba(239, 232, 220, 0.6);
+      border-right: 1px solid rgba(92, 83, 73, 0.25);
+    }
 
     /* Morning Magic planner */
     .planner-wrap { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; padding-bottom: 40px; }
@@ -1045,7 +1050,9 @@
     .schedule-hour {
       font-family: 'JetBrains Mono', monospace;
       font-size: 11px;
-      color: var(--text-tertiary);
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: var(--text-secondary);
       padding: 8px 10px;
       border-right: 1px solid var(--border);
       display: flex; align-items: flex-start;
