@@ -531,16 +531,44 @@
     #app {
       position: relative; z-index: 1;
       display: grid;
-      grid-template-columns: 260px 1fr 300px;
+      grid-template-columns: 260px 6px 0 1fr 0 6px 300px;
       height: 100vh;
-      gap: 14px; padding: 14px; padding-bottom: 46px;
+      gap: 8px; padding: 14px; padding-bottom: 46px;
     }
     .rail, .main-shell {
       background: var(--panel);
       backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
       border: 1px solid var(--border); border-radius: var(--radius-panel);
       display: flex; flex-direction: column; overflow: hidden;
+      min-width: 0;
     }
+    .rail-resizer {
+      background: transparent;
+      cursor: col-resize;
+      border-radius: 3px;
+      transition: background 150ms var(--ease);
+      align-self: stretch;
+      min-height: 0;
+    }
+    .rail-resizer:hover, .rail-resizer.active {
+      background: linear-gradient(180deg, var(--accent-from), var(--accent-to));
+    }
+    .rail-expand {
+      width: 0; overflow: hidden; padding: 0;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-secondary);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      align-self: center;
+      cursor: pointer;
+      transition: background 150ms var(--ease), color 150ms var(--ease);
+    }
+    .rail-expand.visible { width: 18px; padding: 6px 0; }
+    .rail-expand:hover { background: var(--overlay-strong); color: var(--text-primary); }
+    #app.hide-left #left-rail, #app.hide-left #left-resizer { display: none; }
+    #app.hide-right #right-rail, #app.hide-right #right-resizer { display: none; }
 
     /* ---------- Context pills (top of left rail) ---------- */
     .context-pills {
@@ -1577,10 +1605,14 @@
 
   <div id="app">
     <aside id="left-rail" class="rail"></aside>
+    <div id="left-resizer" class="rail-resizer" title="Drag to resize · double-click to hide"></div>
+    <button id="left-expand" class="rail-expand" title="Show left rail">▸</button>
     <section id="main-shell" class="main-shell">
       <div id="main-header" class="main-header"></div>
       <div id="main-body" class="main-body"></div>
     </section>
+    <button id="right-expand" class="rail-expand" title="Show right rail">◂</button>
+    <div id="right-resizer" class="rail-resizer" title="Drag to resize · double-click to hide"></div>
     <aside id="right-rail" class="rail"></aside>
   </div>
 
@@ -2221,6 +2253,11 @@
       }));
       s.ui.banner_dismissed = s.ui.banner_dismissed || {};
       s.ui.collapsed_sections = s.ui.collapsed_sections || {};
+      s.ui.layout = s.ui.layout || {};
+      if (typeof s.ui.layout.left_width !== 'number') s.ui.layout.left_width = 260;
+      if (typeof s.ui.layout.right_width !== 'number') s.ui.layout.right_width = 300;
+      if (typeof s.ui.layout.left_hidden !== 'boolean') s.ui.layout.left_hidden = false;
+      if (typeof s.ui.layout.right_hidden !== 'boolean') s.ui.layout.right_hidden = false;
       return s;
     }
 
@@ -3083,9 +3120,68 @@
     function render() {
       applyTheme();
       applyAccent();
+      applyLayout();
       renderLeftRail();
       renderMain();
       renderRightRail();
+    }
+
+    function applyLayout() {
+      const app = document.getElementById('app');
+      if (!app) return;
+      const L = state.ui.layout || { left_width: 260, right_width: 300, left_hidden: false, right_hidden: false };
+      const leftCol = L.left_hidden ? '0' : L.left_width + 'px';
+      const rightCol = L.right_hidden ? '0' : L.right_width + 'px';
+      const leftResizer = L.left_hidden ? '0' : '6px';
+      const rightResizer = L.right_hidden ? '0' : '6px';
+      const leftExpand = L.left_hidden ? 'auto' : '0';
+      const rightExpand = L.right_hidden ? 'auto' : '0';
+      app.style.gridTemplateColumns = `${leftCol} ${leftResizer} ${leftExpand} 1fr ${rightExpand} ${rightResizer} ${rightCol}`;
+      app.classList.toggle('hide-left', L.left_hidden);
+      app.classList.toggle('hide-right', L.right_hidden);
+      document.getElementById('left-expand').classList.toggle('visible', L.left_hidden);
+      document.getElementById('right-expand').classList.toggle('visible', L.right_hidden);
+    }
+
+    function attachLayoutHandlers() {
+      const leftR = document.getElementById('left-resizer');
+      const rightR = document.getElementById('right-resizer');
+      const leftE = document.getElementById('left-expand');
+      const rightE = document.getElementById('right-expand');
+
+      const startDrag = (side) => (e) => {
+        e.preventDefault();
+        const resizerEl = side === 'left' ? leftR : rightR;
+        resizerEl.classList.add('active');
+        const startX = e.clientX;
+        const startW = state.ui.layout[side + '_width'];
+        const onMove = (ev) => {
+          const dx = ev.clientX - startX;
+          const w = side === 'left' ? startW + dx : startW - dx;
+          const clamped = Math.max(180, Math.min(500, w));
+          const app = document.getElementById('app');
+          const L = state.ui.layout;
+          L[side + '_width'] = clamped;
+          // Live preview without full re-render
+          const leftCol = L.left_hidden ? '0' : L.left_width + 'px';
+          const rightCol = L.right_hidden ? '0' : L.right_width + 'px';
+          app.style.gridTemplateColumns = `${leftCol} ${L.left_hidden ? '0' : '6px'} ${L.left_hidden ? 'auto' : '0'} 1fr ${L.right_hidden ? 'auto' : '0'} ${L.right_hidden ? '0' : '6px'} ${rightCol}`;
+        };
+        const onUp = () => {
+          resizerEl.classList.remove('active');
+          document.removeEventListener('pointermove', onMove);
+          document.removeEventListener('pointerup', onUp);
+          saveState();
+        };
+        document.addEventListener('pointermove', onMove);
+        document.addEventListener('pointerup', onUp);
+      };
+      leftR.addEventListener('pointerdown', startDrag('left'));
+      rightR.addEventListener('pointerdown', startDrag('right'));
+      leftR.addEventListener('dblclick', () => setState(s => { s.ui.layout.left_hidden = true; }));
+      rightR.addEventListener('dblclick', () => setState(s => { s.ui.layout.right_hidden = true; }));
+      leftE.addEventListener('click', () => setState(s => { s.ui.layout.left_hidden = false; }));
+      rightE.addEventListener('click', () => setState(s => { s.ui.layout.right_hidden = false; }));
     }
 
     function applyTheme() {
@@ -5604,7 +5700,6 @@
       clearNode(rail);
       const view = state.ui.active_view;
       rail.style.display = '';
-      document.getElementById('app').style.gridTemplateColumns = '260px 1fr 300px';
 
       // Always: Today's list at the top, so tasks are one click away everywhere
       const todayEntry = plannerEntry('daily', todayISO()) || ensurePlannerEntry('daily', todayISO());
@@ -6710,6 +6805,7 @@
     function init() {
       archiveOldDone();
       rollRecurringCards();
+      attachLayoutHandlers();
       render();
       renderSnark();
       updateSyncBadge();
