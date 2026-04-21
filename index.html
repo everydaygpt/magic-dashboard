@@ -620,6 +620,19 @@
       color: var(--text-tertiary);
     }
     .rail-heading.collapsed { padding-bottom: 4px; }
+    .bank-dock-btn {
+      margin-left: auto;
+      width: 20px; height: 20px;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text-tertiary);
+      font-size: 10px;
+      cursor: pointer;
+      transition: all 120ms var(--ease);
+    }
+    .bank-dock-btn:hover { color: var(--text-primary); border-color: var(--border-strong); background: var(--overlay); }
     .rail-item {
       display: flex; align-items: center; gap: 10px;
       padding: 9px 12px; border-radius: 10px; cursor: pointer;
@@ -2258,6 +2271,7 @@
       if (typeof s.ui.layout.right_width !== 'number') s.ui.layout.right_width = 300;
       if (typeof s.ui.layout.left_hidden !== 'boolean') s.ui.layout.left_hidden = false;
       if (typeof s.ui.layout.right_hidden !== 'boolean') s.ui.layout.right_hidden = false;
+      if (typeof s.ui.layout.task_bank_on_right !== 'boolean') s.ui.layout.task_bank_on_right = false;
       return s;
     }
 
@@ -2400,7 +2414,7 @@
     function planCards(slot, planDate) {
       const date = planDate || currentPlanDate;
       return state.cards
-        .filter(c => c.today_slot === slot && c.plan_date === date && !c.archived && contextMatches(contextOf(c, 'card')))
+        .filter(c => c.today_slot === slot && c.plan_date === date && !c.archived && !c.done_at && contextMatches(contextOf(c, 'card')))
         .sort((a, b) => a.today_position - b.today_position);
     }
     function tomorrowISO() {
@@ -3227,6 +3241,40 @@
       ]);
     }
 
+    function bankSectionEl() {
+      const collapsed = isRailCollapsed('bank');
+      const onRight = !!(state.ui.layout && state.ui.layout.task_bank_on_right);
+      const heading = el('div', { class: 'rail-heading collapsible' + (collapsed ? ' collapsed' : '') }, [
+        el('span', {
+          class: 'rail-heading-arrow',
+          onClick: (e) => { e.stopPropagation(); toggleRailSection('bank'); },
+        }, collapsed ? '▸' : '▾'),
+        el('span', { onClick: () => toggleRailSection('bank'), style: { flex: '1' } }, 'Task Bank'),
+        el('button', {
+          class: 'bank-dock-btn',
+          title: onRight ? 'Dock to left rail' : 'Dock to right rail',
+          onClick: (e) => {
+            e.stopPropagation();
+            setState(s => { s.ui.layout.task_bank_on_right = !s.ui.layout.task_bank_on_right; });
+          },
+        }, onRight ? '◀' : '▶'),
+      ]);
+      const children = [heading];
+      if (!collapsed) {
+        children.push(
+          el('div', { class: 'rail-add', onClick: () => openNewBankCardModal() },
+            [ el('span', { class: 'rail-icon' }, '+'), el('span', {}, 'Add to bank') ]),
+          el('div', { class: 'rail-add', onClick: () => openEmailAnalyzeModal(), title: 'Paste email → Claude extracts tasks' },
+            [ el('span', { class: 'rail-icon' }, '📧'), el('span', {}, 'From email') ]),
+          bankListEl(),
+        );
+      }
+      return el('div', {
+        class: 'rail-section',
+        style: collapsed ? {} : { flex: '1', display: 'flex', flexDirection: 'column', minHeight: '0' },
+      }, children);
+    }
+
     function renderLeftRail() {
       const rail = document.getElementById('left-rail');
       clearNode(rail);
@@ -3264,22 +3312,9 @@
       rail.appendChild(el('div', { class: 'rail-section' }, projChildren));
       rail.appendChild(el('div', { class: 'rail-divider' }));
 
-      const bankCollapsed = isRailCollapsed('bank');
-      const bankChildren = [collapsibleHeadingEl('Task Bank', 'bank')];
-      if (!bankCollapsed) {
-        bankChildren.push(
-          el('div', { class: 'rail-add', onClick: () => openNewBankCardModal() },
-            [ el('span', { class: 'rail-icon' }, '+'), el('span', {}, 'Add to bank') ]),
-          el('div', { class: 'rail-add', onClick: () => openEmailAnalyzeModal(), title: 'Paste email → Claude extracts tasks' },
-            [ el('span', { class: 'rail-icon' }, '📧'), el('span', {}, 'From email') ]),
-          bankListEl(),
-        );
+      if (!state.ui.layout || !state.ui.layout.task_bank_on_right) {
+        rail.appendChild(bankSectionEl());
       }
-      const bank = el('div', {
-        class: 'rail-section',
-        style: bankCollapsed ? {} : { flex: '1', display: 'flex', flexDirection: 'column', minHeight: '0' },
-      }, bankChildren);
-      rail.appendChild(bank);
 
       const bankList = rail.querySelector('.bank-list');
       if (bankList) {
@@ -3954,6 +3989,19 @@
                 const h = parseInt(evt.to.dataset.scheduleHour, 10);
                 if (!isNaN(h)) scheduleCardAt(cardId, currentPlanDate, h);
               }
+            },
+          });
+        });
+        // Top 3 slots accept drops from bank / project columns / schedule
+        wrap.querySelectorAll('.top3-slot').forEach((slotEl, i) => {
+          Sortable.create(slotEl, {
+            group: { name: 'top3', pull: false, put: ['cards', 'schedule'] },
+            animation: 160,
+            onAdd: (evt) => {
+              const cardId = evt.item.dataset.cardId;
+              evt.item.remove();
+              if (!cardId) return;
+              addCardToPlan(cardId, 'priority', currentPlanDate);
             },
           });
         });
@@ -5755,6 +5803,23 @@
           });
         }
       }
+
+      // Task Bank docked to right rail
+      if (state.ui.layout && state.ui.layout.task_bank_on_right) {
+        rail.appendChild(bankSectionEl());
+        const bankList = rail.querySelector('.bank-list');
+        if (bankList) {
+          Sortable.create(bankList, {
+            group: { name: 'cards', pull: true, put: true },
+            animation: 180,
+            easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+            ghostClass: 'sortable-ghost',
+            chosenClass: 'sortable-chosen',
+            dragClass: 'sortable-drag',
+            onEnd: handleCardDrop,
+          });
+        }
+      }
     }
 
     function renderMiniTodayList(entry) {
@@ -6390,6 +6455,7 @@
         clearNode(listEl);
         const q = search.toLowerCase().trim();
         const candidates = state.cards.filter(c => {
+          if (c.archived || c.done_at) return false;
           if (!contextMatches(contextOf(c, 'card'))) return false;
           if (q && !c.title.toLowerCase().includes(q)) return false;
           return true;
