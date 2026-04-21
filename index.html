@@ -3996,9 +3996,16 @@
     function planDateToggleEl() {
       const today = todayISO();
       const tomorrow = tomorrowISO();
+      const yesterday = yesterdayISO();
       const isToday = currentPlanDate === today;
       const isTomorrow = currentPlanDate === tomorrow;
+      const isYesterday = currentPlanDate === yesterday;
+      const isCustom = !isToday && !isTomorrow && !isYesterday;
       const wrap = el('div', { class: 'context-toggle', style: { marginRight: '6px' } });
+      wrap.appendChild(el('button', {
+        class: isYesterday ? 'active work' : '',
+        onClick: () => { currentPlanDate = yesterday; render(); },
+      }, 'Yesterday'));
       wrap.appendChild(el('button', {
         class: isToday ? 'active work' : '',
         onClick: () => { currentPlanDate = today; render(); },
@@ -4008,13 +4015,13 @@
         onClick: () => { currentPlanDate = tomorrow; render(); },
       }, 'Tomorrow'));
       wrap.appendChild(el('button', {
-        class: (!isToday && !isTomorrow) ? 'active work' : '',
+        class: isCustom ? 'active work' : '',
         onClick: () => {
           const v = prompt('Plan date (YYYY-MM-DD):', currentPlanDate);
           if (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) { currentPlanDate = v; render(); }
         },
         title: 'Custom date',
-      }, (!isToday && !isTomorrow) ? new Date(currentPlanDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'Date…'));
+      }, isCustom ? new Date(currentPlanDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'Date…'));
       return wrap;
     }
 
