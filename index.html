@@ -532,8 +532,131 @@
       position: relative; z-index: 1;
       display: grid;
       grid-template-columns: 260px 6px 0 1fr 0 6px 300px;
+      grid-template-rows: auto 1fr;
       height: 100vh;
       gap: 8px; padding: 14px; padding-bottom: 46px;
+    }
+    #top-nav {
+      grid-column: 1 / -1;
+      grid-row: 1;
+      display: flex; align-items: center; gap: 14px;
+      padding: 8px 14px;
+      background: var(--panel);
+      backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-panel);
+    }
+    .nav-brand {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-tertiary);
+      padding-right: 8px;
+      border-right: 1px solid var(--border);
+    }
+    .nav-tabs {
+      display: flex; align-items: center; gap: 4px;
+    }
+    .nav-tab {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 7px 12px;
+      border-radius: 8px;
+      font-size: 13px; font-weight: 500;
+      color: var(--text-secondary);
+      background: transparent;
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all 120ms var(--ease);
+      white-space: nowrap;
+    }
+    .nav-tab:hover { color: var(--text-primary); background: var(--overlay); }
+    .nav-tab.active {
+      background: var(--overlay-strong);
+      color: var(--text-primary);
+      border-color: var(--border);
+    }
+    .nav-tab.active::before {
+      content: ''; position: absolute;
+      left: 0; right: 0; bottom: -9px; height: 2px;
+      border-radius: 2px;
+      background: linear-gradient(90deg, var(--accent-from), var(--accent-to));
+    }
+    .nav-tab { position: relative; }
+    .nav-tab-icon { font-size: 13px; }
+    .nav-tab-count {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--text-tertiary);
+      margin-left: 2px;
+      padding: 1px 5px;
+      background: var(--overlay);
+      border-radius: 4px;
+    }
+    .nav-sep { width: 1px; height: 20px; background: var(--border); margin: 0 6px; }
+    .nav-tab.secondary { padding: 6px 8px; font-size: 12px; color: var(--text-tertiary); }
+    .nav-spacer { flex: 1; }
+    .nav-right {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .nav-right .context-pills { margin: 0; }
+
+    /* Projects hub */
+    .projects-hub-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 16px;
+      padding: 0 2px;
+    }
+    .projects-hub-card {
+      position: relative;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 18px 16px 14px;
+      cursor: pointer;
+      overflow: hidden;
+      transition: transform 180ms var(--spring), box-shadow 180ms var(--ease), border-color 180ms var(--ease);
+      display: flex; flex-direction: column; gap: 10px;
+      min-height: 120px;
+    }
+    .projects-hub-card:hover {
+      transform: translateY(-2px);
+      border-color: var(--border-strong);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+    }
+    .projects-hub-card-accent {
+      position: absolute; top: 0; left: 0; right: 0; height: 3px;
+      background: linear-gradient(90deg, var(--item-from, #7c3aed), var(--item-to, #ec4899));
+    }
+    .projects-hub-card-head {
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
+    }
+    .projects-hub-card-title {
+      font-size: 15px; font-weight: 600;
+      color: var(--text-primary);
+      line-height: 1.25;
+    }
+    .projects-hub-card-ctx {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em;
+      padding: 2px 6px; border-radius: 4px;
+      color: var(--text-tertiary);
+      background: var(--overlay);
+    }
+    .projects-hub-card-ctx.work { color: var(--work); }
+    .projects-hub-card-ctx.personal { color: var(--personal); }
+    .projects-hub-card-meta {
+      display: flex; gap: 6px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; color: var(--text-tertiary);
+    }
+    .projects-hub-card-people {
+      display: flex; flex-wrap: wrap; gap: 4px;
+      margin-top: auto;
+    }
+    .projects-hub-more {
+      font-size: 11px; color: var(--text-tertiary);
+      padding: 3px 6px;
     }
     .rail, .main-shell {
       background: var(--panel);
@@ -541,6 +664,7 @@
       border: 1px solid var(--border); border-radius: var(--radius-panel);
       display: flex; flex-direction: column; overflow: hidden;
       min-width: 0;
+      grid-row: 2;
     }
     .rail-resizer {
       background: transparent;
@@ -549,7 +673,9 @@
       transition: background 150ms var(--ease);
       align-self: stretch;
       min-height: 0;
+      grid-row: 2;
     }
+    .rail-expand { grid-row: 2; }
     .rail-resizer:hover, .rail-resizer.active {
       background: linear-gradient(180deg, var(--accent-from), var(--accent-to));
     }
@@ -1617,6 +1743,7 @@
   </div>
 
   <div id="app">
+    <nav id="top-nav"></nav>
     <aside id="left-rail" class="rail"></aside>
     <div id="left-resizer" class="rail-resizer" title="Drag to resize · double-click to hide"></div>
     <button id="left-expand" class="rail-expand" title="Show left rail">▸</button>
@@ -2414,7 +2541,13 @@
     function planCards(slot, planDate) {
       const date = planDate || currentPlanDate;
       return state.cards
-        .filter(c => c.today_slot === slot && c.plan_date === date && !c.archived && !c.done_at && contextMatches(contextOf(c, 'card')))
+        .filter(c => {
+          if (c.today_slot !== slot || c.plan_date !== date) return false;
+          if (!contextMatches(contextOf(c, 'card'))) return false;
+          // Keep completed-today tasks visible (strike-through); hide older archived.
+          if (c.archived) return c.done_at && c.done_at.slice(0, 10) === date;
+          return true;
+        })
         .sort((a, b) => a.today_position - b.today_position);
     }
     function tomorrowISO() {
@@ -2939,6 +3072,14 @@
             c.scheduled_time = null;
           } else {
             c.archived = true;
+            // If not already scheduled, stamp completion onto today's schedule
+            if (!c.scheduled_time) {
+              const n = new Date();
+              const hh = String(n.getHours()).padStart(2, '0');
+              const mm = String(Math.floor(n.getMinutes() / 15) * 15).padStart(2, '0');
+              c.scheduled_time = todayISO() + 'T' + hh + ':' + mm + ':00';
+              if (!c.duration_minutes) c.duration_minutes = 30;
+            }
           }
         }
       });
@@ -3135,9 +3276,45 @@
       applyTheme();
       applyAccent();
       applyLayout();
+      renderTopNav();
       renderLeftRail();
       renderMain();
       renderRightRail();
+    }
+
+    function renderTopNav() {
+      const nav = document.getElementById('top-nav');
+      if (!nav) return;
+      clearNode(nav);
+      const view = state.ui.active_view;
+      const proj = projectById(view);
+      const activeTab = proj ? 'projects' : view;
+      const mkTab = (id, label, icon, opts) => {
+        opts = opts || {};
+        return el('button', {
+          class: 'nav-tab' + (opts.secondary ? ' secondary' : '') + (activeTab === id ? ' active' : ''),
+          onClick: () => { state.ui.active_view = id; saveState(); render(); },
+        }, [
+          icon ? el('span', { class: 'nav-tab-icon' }, icon) : null,
+          el('span', {}, label),
+          opts.count != null ? el('span', { class: 'nav-tab-count' }, String(opts.count)) : null,
+        ]);
+      };
+      nav.appendChild(el('div', { class: 'nav-brand' }, 'MAGIC'));
+      const tabs = el('div', { class: 'nav-tabs' }, [
+        mkTab('today', 'Today', '◉', { count: todayCards().length + planCards('priority', todayISO()).length }),
+        mkTab('daily', 'Daily', '🌅'),
+        mkTab('weekly', 'Weekly', '📆'),
+        mkTab('projects', 'Projects', '◳', { count: visibleProjects().length }),
+        el('div', { class: 'nav-sep' }),
+        mkTab('ideas', 'Ideas', '💡', { secondary: true, count: visibleIdeas().length }),
+        mkTab('goals', 'Goals', '🎯', { secondary: true, count: visibleGoals().length }),
+        mkTab('activity', 'Activity', '📋', { secondary: true, count: visibleActivity().length }),
+        mkTab('done', 'Done', '✓', { secondary: true, count: visibleArchivedCards().length }),
+      ]);
+      nav.appendChild(tabs);
+      nav.appendChild(el('div', { class: 'nav-spacer' }));
+      nav.appendChild(contextPillsEl(state.ui.context_filter));
     }
 
     function applyLayout() {
@@ -3278,42 +3455,13 @@
     function renderLeftRail() {
       const rail = document.getElementById('left-rail');
       clearNode(rail);
-      const view = state.ui.active_view;
-      const filter = state.ui.context_filter;
-
-      rail.appendChild(contextPillsEl(filter));
-
-      const padsCollapsed = isRailCollapsed('pads');
-      const padsChildren = [collapsibleHeadingEl('Pages', 'pads')];
-      if (!padsCollapsed) {
-        padsChildren.push(
-          railItem('today', 'Today', '◉', view === 'today', { count: todayCards().length + planCards('priority', todayISO()).length }),
-          railItem('daily', 'Daily planner', '🌅', view === 'daily'),
-          railItem('weekly', 'Weekly planner', '📆', view === 'weekly'),
-          railItem('ideas', 'Ideas', '💡', view === 'ideas', { count: visibleIdeas().length }),
-          railItem('goals', 'Goals', '🎯', view === 'goals', { count: visibleGoals().length }),
-          railItem('activity', 'Activity', '📋', view === 'activity', { count: visibleActivity().length }),
-          railItem('done', 'Done', '✓', view === 'done', { count: visibleArchivedCards().length }),
-        );
-      }
-      rail.appendChild(el('div', { class: 'rail-section' }, padsChildren));
-      rail.appendChild(el('div', { class: 'rail-divider' }));
-
-      const projs = visibleProjects();
-      const projCollapsed = isRailCollapsed('projects');
-      const projChildren = [collapsibleHeadingEl('Projects', 'projects')];
-      if (!projCollapsed) {
-        projs.forEach(p => projChildren.push(projectRailItem(p, view === p.id)));
-        projChildren.push(el('div', { class: 'rail-add', onClick: () => openNewProjectModal() }, [
-          el('span', { class: 'rail-icon' }, '+'),
-          el('span', {}, 'New project'),
-        ]));
-      }
-      rail.appendChild(el('div', { class: 'rail-section' }, projChildren));
-      rail.appendChild(el('div', { class: 'rail-divider' }));
 
       if (!state.ui.layout || !state.ui.layout.task_bank_on_right) {
         rail.appendChild(bankSectionEl());
+      } else {
+        rail.appendChild(el('div', {
+          style: { padding: '24px 16px', color: 'var(--text-tertiary)', fontSize: '12px', fontStyle: 'italic', textAlign: 'center' },
+        }, 'Task Bank is docked on the right. Use the ◀ button in its header to bring it back.'));
       }
 
       const bankList = rail.querySelector('.bank-list');
@@ -3356,8 +3504,8 @@
     }
 
     function contextPillsEl(filter) {
-      const outer = el('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', margin: '10px 14px 14px' } });
-      const wrap = el('div', { class: 'context-pills', style: { flex: '1', margin: '0' } });
+      const outer = el('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } });
+      const wrap = el('div', { class: 'context-pills', style: { margin: '0' } });
       const mk = (val, label, cls) => el('button', {
         class: 'context-pill ' + cls + (filter === val ? ' active' : ''),
         onClick: () => { state.ui.context_filter = val; saveState(); render(); },
@@ -3877,9 +4025,61 @@
       if (view === 'goals') { renderGoalsView(header, body); return; }
       if (view === 'activity') { renderActivityView(header, body); return; }
       if (view === 'done') { renderDoneView(header, body); return; }
+      if (view === 'projects') { renderProjectsHub(header, body); return; }
       const proj = projectById(view);
       if (!proj) { state.ui.active_view = 'today'; render(); return; }
       renderProjectView(header, body, proj);
+    }
+
+    function renderProjectsHub(header, body) {
+      header.appendChild(el('div', { class: 'main-title' }, [
+        el('div', { class: 'main-title-dot' }),
+        el('span', {}, 'Projects'),
+      ]));
+      const projs = visibleProjects();
+      header.appendChild(el('div', { class: 'main-subtitle' }, projs.length + ' project' + (projs.length === 1 ? '' : 's')));
+      header.appendChild(el('div', { class: 'main-actions' }, [
+        el('button', { class: 'text-btn', onClick: () => openNewProjectModal() }, '+ New project'),
+      ]));
+      const grid = el('div', { class: 'projects-hub-grid' });
+      projs.forEach(p => grid.appendChild(projectHubCardEl(p)));
+      if (projs.length === 0) {
+        body.appendChild(el('div', {
+          style: { padding: '40px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '13px' },
+        }, 'No projects yet. Click "+ New project" to start one.'));
+        return;
+      }
+      body.appendChild(grid);
+    }
+
+    function projectHubCardEl(p) {
+      const cardCount = state.cards.filter(c => c.project_id === p.id && !c.archived).length;
+      const people = Array.isArray(p.people) ? p.people : [];
+      const open = () => { state.ui.active_view = p.id; saveState(); render(); };
+      const node = el('div', {
+        class: 'projects-hub-card',
+        style: { '--item-from': p.accent.from, '--item-to': p.accent.to },
+        onClick: open,
+      });
+      node.appendChild(el('div', { class: 'projects-hub-card-accent' }));
+      node.appendChild(el('div', { class: 'projects-hub-card-head' }, [
+        el('div', { class: 'projects-hub-card-title' }, p.name),
+        el('span', { class: 'projects-hub-card-ctx ' + (p.context || 'work') }, p.context || 'work'),
+      ]));
+      node.appendChild(el('div', { class: 'projects-hub-card-meta' }, [
+        el('span', {}, cardCount + ' card' + (cardCount === 1 ? '' : 's')),
+        el('span', {}, '·'),
+        el('span', {}, p.columns.length + ' column' + (p.columns.length === 1 ? '' : 's')),
+      ]));
+      if (people.length) {
+        const row = el('div', { class: 'projects-hub-card-people' });
+        people.slice(0, 5).forEach(name => row.appendChild(el('span', { class: 'team-chip' }, [
+          el('span', { class: 'team-chip-name' }, name),
+        ])));
+        if (people.length > 5) row.appendChild(el('span', { class: 'projects-hub-more' }, '+' + (people.length - 5)));
+        node.appendChild(row);
+      }
+      return node;
     }
 
     // ---------- Today plan ----------
