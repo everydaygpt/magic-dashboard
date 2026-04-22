@@ -324,11 +324,12 @@
     .today-row:hover { background: var(--overlay); }
     .today-check {
       flex-shrink: 0;
-      width: 18px; height: 18px;
-      border: 1.5px solid var(--border-strong);
-      border-radius: 5px;
+      width: 24px; height: 24px;
+      border: 2px solid var(--border-strong);
+      border-radius: 6px;
       display: flex; align-items: center; justify-content: center;
-      font-size: 12px; color: transparent;
+      font-size: 15px; color: transparent;
+      cursor: pointer;
       transition: all 150ms var(--spring);
       margin-top: 1px;
     }
@@ -654,6 +655,20 @@
       display: flex; gap: 6px;
       font-family: 'JetBrains Mono', monospace;
       font-size: 11px; color: var(--text-tertiary);
+    }
+    .projects-hub-card-link-row { margin-top: -2px; }
+    .projects-hub-card-link {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 11px; color: var(--text-tertiary);
+      text-decoration: none;
+      padding: 3px 8px; border-radius: 6px;
+      background: var(--overlay);
+      max-width: 100%;
+    }
+    .projects-hub-card-link:hover { color: var(--text-primary); background: var(--overlay-strong); }
+    .projects-hub-card-link .truncate {
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      max-width: 200px;
     }
     .projects-hub-card-people {
       display: flex; flex-wrap: wrap; gap: 4px;
@@ -1062,9 +1077,23 @@
       position: relative;
       min-height: 44px;
       transition: background 120ms;
+      cursor: copy;
     }
     .schedule-slot.sortable-hover,
     .schedule-slot:hover { background: var(--overlay); }
+    .schedule-slot:hover::after {
+      content: '+ click to add';
+      position: absolute;
+      right: 10px; top: 50%;
+      transform: translateY(-50%);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--text-tertiary);
+      opacity: 0.7;
+      pointer-events: none;
+    }
+    /* Don't show the add hint over slots that have cards */
+    .schedule-slot:has(.schedule-card):hover::after { display: none; }
     .schedule-card {
       background: var(--card);
       border: 1px solid var(--border);
@@ -1127,12 +1156,15 @@
       pointer-events: none;
     }
     .schedule-card-check {
-      width: 14px; height: 14px; flex-shrink: 0;
-      border: 1.5px solid var(--border-strong);
-      border-radius: 4px;
+      width: 20px; height: 20px; flex-shrink: 0;
+      border: 2px solid var(--border-strong);
+      border-radius: 5px;
       display: flex; align-items: center; justify-content: center;
-      font-size: 10px; color: transparent;
+      font-size: 13px; color: transparent;
+      cursor: pointer;
+      transition: all 120ms var(--ease);
     }
+    .schedule-card-check:hover { border-color: var(--accent-from); }
     .schedule-card.done .schedule-card-check {
       background: linear-gradient(135deg, var(--accent-from), var(--accent-to));
       border-color: transparent; color: white;
@@ -1209,7 +1241,7 @@
     .plan-card {
       background: rgba(50, 50, 82, 0.8);
       border: 1px solid var(--border); border-radius: 10px;
-      padding: 10px 12px 10px 34px; position: relative;
+      padding: 10px 12px 10px 42px; position: relative;
       cursor: pointer;
       transition: background 150ms var(--ease);
     }
@@ -1218,14 +1250,14 @@
     .plan-card.done .plan-card-title { text-decoration: line-through; }
     .plan-card-check {
       position: absolute; top: 10px; left: 10px;
-      width: 16px; height: 16px;
-      border: 1.5px solid var(--border-strong); border-radius: 4px;
+      width: 22px; height: 22px;
+      border: 2px solid var(--border-strong); border-radius: 5px;
       display: flex; align-items: center; justify-content: center;
-      font-size: 11px; color: transparent;
+      font-size: 14px; color: transparent;
       cursor: pointer;
       transition: all 120ms var(--ease);
     }
-    .plan-card-check:hover { border-color: var(--accent-from); }
+    .plan-card-check:hover { border-color: var(--accent-from); background: var(--overlay); }
     .plan-card.done .plan-card-check {
       background: linear-gradient(135deg, var(--accent-from), var(--accent-to));
       border-color: transparent; color: white;
@@ -2341,7 +2373,12 @@
     function migrateState(s) {
       if (!s || typeof s !== 'object') return defaultState();
       if (s.version !== 1) return defaultState();
-      s.projects = (s.projects || []).map(p => ({ ...p, context: p.context || 'work', people: Array.isArray(p.people) ? p.people : [] }));
+      s.projects = (s.projects || []).map(p => ({
+        ...p,
+        context: p.context || 'work',
+        people: Array.isArray(p.people) ? p.people : [],
+        link: typeof p.link === 'string' ? p.link : '',
+      }));
       s.ideas = (s.ideas || []).map(i => ({
         ...i,
         context: i.context || 'work',
@@ -2381,6 +2418,7 @@
         recurrence_day: (typeof c.recurrence_day === 'number' && c.recurrence_day >= 0 && c.recurrence_day <= 6) ? c.recurrence_day : null,
         recurrence_interval: typeof c.recurrence_interval === 'number' && c.recurrence_interval > 0 ? c.recurrence_interval : null,
         recurrence_unit: ['day','week','month','year'].includes(c.recurrence_unit) ? c.recurrence_unit : null,
+        auto_complete: c.auto_complete === true,
         last_missed_at: c.last_missed_at || null,
         missed_count: typeof c.missed_count === 'number' ? c.missed_count : 0,
         source: c.source || null,
@@ -2611,7 +2649,7 @@
         { id: uid('col'), name: 'Done' },
       ];
       setState(s => {
-        s.projects.push({ id, name, accent, context, people: [], columns: cols, created_at: now() });
+        s.projects.push({ id, name, accent, context, people: [], link: '', columns: cols, created_at: now() });
         s.ui.active_view = id;
         logActivity('project_created', 'Created project "' + name + '"', { project_id: id, context });
       });
@@ -2645,6 +2683,24 @@
         if (!p || !Array.isArray(p.people)) return;
         p.people = p.people.filter(x => x !== name);
       });
+    }
+    function setProjectLink(pid, link) {
+      setState(s => {
+        const p = s.projects.find(x => x.id === pid);
+        if (!p) return;
+        p.link = (link || '').trim();
+      });
+    }
+    function promptProjectLink(proj) {
+      const current = proj.link || '';
+      const v = prompt('Link URL for "' + proj.name + '" (leave blank to remove):', current);
+      if (v === null) return;
+      const trimmed = v.trim();
+      if (trimmed && !/^https?:\/\//i.test(trimmed)) {
+        setProjectLink(proj.id, 'https://' + trimmed);
+      } else {
+        setProjectLink(proj.id, trimmed);
+      }
     }
 
     function deleteProject(id, mode) {
@@ -3159,13 +3215,20 @@
         if (!c.recurrence || c.archived) return;
         const dueISO = resolveDueISO(c.due);
         if (!dueISO || dueISO >= today) return;
-        // Past due: mark previous as missed, advance to next
-        logActivity('card_missed', 'Missed recurring "' + c.title + '" (due ' + dueISO + ')', {
-          project_id: c.project_id === 'inbox' ? null : c.project_id,
-          source_type: 'card', source_id: c.id, context: c.context,
-        });
-        c.missed_count = (c.missed_count || 0) + 1;
-        c.last_missed_at = dueISO;
+        if (c.auto_complete) {
+          // Auto-complete occurrence: log as done, advance to next cycle.
+          logActivity('card_done', 'Auto-completed recurring "' + c.title + '" (' + dueISO + ')', {
+            project_id: c.project_id === 'inbox' ? null : c.project_id,
+            source_type: 'card', source_id: c.id, context: c.context,
+          });
+        } else {
+          logActivity('card_missed', 'Missed recurring "' + c.title + '" (due ' + dueISO + ')', {
+            project_id: c.project_id === 'inbox' ? null : c.project_id,
+            source_type: 'card', source_id: c.id, context: c.context,
+          });
+          c.missed_count = (c.missed_count || 0) + 1;
+          c.last_missed_at = dueISO;
+        }
         c.due = nextOccurrenceISO(dueISO, c.recurrence, c.recurrence_day, { interval: c.recurrence_interval, unit: c.recurrence_unit });
         c.done_at = null;
         c.scheduled_time = null;
@@ -3176,7 +3239,7 @@
 
     function rollMissedSchedules() {
       // Any non-recurring scheduled task whose scheduled_time is in the past
-      // and isn't completed → unschedule so it flows back into the task bank.
+      // and isn't completed → either auto-complete (user flag) or unschedule → bank.
       const today = todayISO();
       let changed = false;
       state.cards.forEach(c => {
@@ -3185,11 +3248,21 @@
         if (c.recurrence) return; // recurring handled separately
         const schedDate = c.scheduled_time.slice(0, 10);
         if (schedDate >= today) return;
-        logActivity('card_missed', 'Rolled back to bank: "' + c.title + '" (scheduled ' + schedDate + ')', {
-          project_id: c.project_id === 'inbox' ? null : c.project_id,
-          source_type: 'card', source_id: c.id, context: c.context,
-        });
-        c.scheduled_time = null;
+        if (c.auto_complete) {
+          // End of scheduled day passed — mark done at the original scheduled time.
+          c.done_at = c.scheduled_time;
+          c.archived = true;
+          logActivity('card_done', 'Auto-completed "' + c.title + '" (scheduled ' + schedDate + ')', {
+            project_id: c.project_id === 'inbox' ? null : c.project_id,
+            source_type: 'card', source_id: c.id, context: c.context,
+          });
+        } else {
+          logActivity('card_missed', 'Rolled back to bank: "' + c.title + '" (scheduled ' + schedDate + ')', {
+            project_id: c.project_id === 'inbox' ? null : c.project_id,
+            source_type: 'card', source_id: c.id, context: c.context,
+          });
+          c.scheduled_time = null;
+        }
         changed = true;
       });
       if (changed) saveState();
@@ -3225,6 +3298,36 @@
         // Store as a LOCAL time string (not UTC) so slice(0,10) matches the local date
         c.scheduled_time = dateIso + 'T' + String(hour).padStart(2, '0') + ':00:00';
       });
+    }
+    function createScheduledTaskAt(dateIso, hour, minute) {
+      const title = (prompt('New task at ' + String(hour).padStart(2, '0') + ':' + String(minute || 0).padStart(2, '0') + ' — title:') || '').trim();
+      if (!title) return;
+      const existing = findLiveCardByTitle(title);
+      if (existing) {
+        setState(s => {
+          const c = s.cards.find(x => x.id === existing.id);
+          if (c) {
+            c.scheduled_time = dateIso + 'T' + String(hour).padStart(2, '0') + ':' + String(minute || 0).padStart(2, '0') + ':00';
+            if (!c.duration_minutes) c.duration_minutes = 30;
+          }
+        });
+        return;
+      }
+      const ctx = state.ui.context_filter !== 'all' ? state.ui.context_filter : 'work';
+      const id = uid('card');
+      setState(s => {
+        s.cards.push({
+          id, project_id: 'inbox', column_id: null, position: 0,
+          title, notes: '', due: null,
+          today_slot: null, today_position: 0, plan_date: null,
+          context: ctx, done_at: null, archived: false,
+          recurrence: null, duration_minutes: 30,
+          scheduled_time: dateIso + 'T' + String(hour).padStart(2, '0') + ':' + String(minute || 0).padStart(2, '0') + ':00',
+          created_at: now(),
+        });
+        logActivity('card_created', 'Added scheduled task "' + title + '"', { source_type: 'card', source_id: id, context: ctx });
+      });
+      soundAdd();
     }
     function unscheduleCard(cardId) {
       setState(s => {
@@ -3906,6 +4009,7 @@
       let recurrenceUnit = ['day','week','month','year'].includes(c.recurrence_unit) ? c.recurrence_unit : 'week';
       let duration = c.duration_minutes || '';
       let timeHHMM = extractTimeHHMM(c.scheduled_time);
+      let autoComplete = !!c.auto_complete;
       const titleInput = el('input', { type: 'text', value: title, onInput: (e) => title = e.target.value });
       const notesArea = el('textarea', { rows: 3, value: '', onInput: (e) => notes = e.target.value, style: { minHeight: '60px' } });
       notesArea.value = notes;
@@ -4010,9 +4114,24 @@
           recurrence_unit: recurrence === 'custom' ? recurrenceUnit : null,
           duration_minutes: (dur != null && !isNaN(dur) && dur >= 0) ? dur : null,
           scheduled_time: schedTime,
+          auto_complete: autoComplete,
         });
         closeModal();
       };
+      const autoCompleteCheckbox = el('input', {
+        type: 'checkbox',
+        onChange: (e) => { autoComplete = e.target.checked; },
+        style: { width: '16px', height: '16px', cursor: 'pointer' },
+      });
+      autoCompleteCheckbox.checked = autoComplete;
+      const autoCompleteRow = el('label', {
+        class: 'card-edit-row',
+        style: { marginTop: '6px', cursor: 'pointer' },
+      }, [
+        autoCompleteCheckbox,
+        el('span', { style: { fontSize: '12px', color: 'var(--text-secondary)' } }, 'Auto-complete at end of scheduled day'),
+        el('span', { style: { fontSize: '10px', color: 'var(--text-tertiary)', fontStyle: 'italic' } }, '(for events that happen whether you "did" them or not — like hockey games)'),
+      ]);
       const durationInput = el('input', {
         type: 'number', min: '0', step: '5', placeholder: 'Optional — minutes',
         value: duration,
@@ -4038,6 +4157,7 @@
           timeInput,
           el('span', { style: { fontSize: '11px', color: 'var(--text-tertiary)' } }, 'needs a due date'),
         ]),
+        autoCompleteRow,
         recRow,
         dayRow,
         customRow,
@@ -4108,10 +4228,22 @@
         onClick: open,
       });
       node.appendChild(el('div', { class: 'projects-hub-card-accent' }));
-      node.appendChild(el('div', { class: 'projects-hub-card-head' }, [
+      const headChildren = [
         el('div', { class: 'projects-hub-card-title' }, p.name),
         el('span', { class: 'projects-hub-card-ctx ' + (p.context || 'work') }, p.context || 'work'),
-      ]));
+      ];
+      node.appendChild(el('div', { class: 'projects-hub-card-head' }, headChildren));
+      if (p.link) {
+        const linkRow = el('div', { class: 'projects-hub-card-link-row' }, [
+          el('a', {
+            href: p.link, target: '_blank', rel: 'noopener',
+            class: 'projects-hub-card-link',
+            onClick: (e) => e.stopPropagation(),
+            title: p.link,
+          }, [ el('span', {}, '🔗'), el('span', { class: 'truncate' }, p.link.replace(/^https?:\/\//, '')) ]),
+        ]);
+        node.appendChild(linkRow);
+      }
       node.appendChild(el('div', { class: 'projects-hub-card-meta' }, [
         el('span', {}, cardCount + ' card' + (cardCount === 1 ? '' : 's')),
         el('span', {}, '·'),
@@ -4176,6 +4308,15 @@
         const slot = el('div', {
           class: 'schedule-slot',
           dataset: { scheduleHour: String(h) },
+          onClick: (e) => {
+            // Click on empty slot area → create new task at that hour (+ minute from click Y)
+            if (e.target.closest('.schedule-card')) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            const rel = e.clientY - rect.top;
+            const snap = 15;
+            const minute = Math.min(45, Math.max(0, Math.round(rel / rect.height * 60 / snap) * snap));
+            createScheduledTaskAt(currentPlanDate, h, minute);
+          },
         });
         scheduled
           .filter(c => hourOfScheduled(c) === h)
@@ -5670,7 +5811,18 @@
         el('span', { class: 'activity-ctx ' + proj.context, title: 'Project context' }, proj.context),
       ]));
       header.appendChild(el('div', { class: 'main-subtitle' }, projectCardCount(proj.id) + ' cards · ' + proj.columns.length + ' columns'));
+      const linkBtn = proj.link
+        ? el('a', {
+            class: 'icon-btn', href: proj.link, target: '_blank', rel: 'noopener',
+            title: 'Open ' + proj.link,
+            onContextmenu: (e) => { e.preventDefault(); promptProjectLink(proj); },
+          }, '🔗')
+        : el('button', {
+            class: 'icon-btn', title: 'Set project link (URL)',
+            onClick: () => promptProjectLink(proj),
+          }, '🔗');
       header.appendChild(el('div', { class: 'main-actions' }, [
+        linkBtn,
         el('button', { class: 'icon-btn', title: 'Archive Done now', onClick: () => {
           const count = proj.columns.filter(c => isDoneColumn(proj, c.id)).reduce((n, c) => n + cardsForColumn(proj.id, c.id).length, 0);
           if (count === 0) { alert('No cards in any Done column.'); return; }
