@@ -3731,6 +3731,7 @@
           ghostClass: 'sortable-ghost',
           chosenClass: 'sortable-chosen',
           dragClass: 'sortable-drag',
+          delay: 120, delayOnTouchOnly: true, touchStartThreshold: 5, fallbackOnBody: true,
           onEnd: handleCardDrop,
         });
       }
@@ -3740,6 +3741,7 @@
           group: { name: 'cards', pull: false, put: true },
           animation: 180,
           sort: false,
+          delay: 120, delayOnTouchOnly: true, touchStartThreshold: 5, fallbackOnBody: true,
           onAdd: (evt) => {
             const cardId = evt.item.dataset.cardId;
             const targetProjId = item.dataset.projDrop;
@@ -4462,6 +4464,7 @@
             group: { name: 'schedule', pull: true, put: ['schedule', 'cards'] },
             animation: 160,
             easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+            delay: 120, delayOnTouchOnly: true, touchStartThreshold: 5, fallbackOnBody: true,
             onStart: () => document.body.classList.add('sched-dragging'),
             // onAdd fires when a card arrives from ANOTHER list (bank, project column, pool)
             onAdd: (evt) => {
@@ -4496,6 +4499,7 @@
           Sortable.create(slotEl, {
             group: { name: 'top3', pull: false, put: ['cards', 'schedule'] },
             animation: 160,
+            delay: 120, delayOnTouchOnly: true, touchStartThreshold: 5, fallbackOnBody: true,
             onAdd: (evt) => {
               const cardId = evt.item.dataset.cardId;
               evt.item.remove();
@@ -5960,6 +5964,10 @@
             ghostClass: 'sortable-ghost',
             chosenClass: 'sortable-chosen',
             dragClass: 'sortable-drag',
+            delay: 120,
+            delayOnTouchOnly: true,
+            touchStartThreshold: 5,
+            fallbackOnBody: true,
             onEnd: handleCardDrop,
           });
         }
@@ -6337,6 +6345,7 @@
             ghostClass: 'sortable-ghost',
             chosenClass: 'sortable-chosen',
             dragClass: 'sortable-drag',
+            delay: 120, delayOnTouchOnly: true, touchStartThreshold: 5, fallbackOnBody: true,
             onEnd: handleCardDrop,
           });
         }
