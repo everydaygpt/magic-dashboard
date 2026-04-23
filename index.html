@@ -3561,8 +3561,6 @@
       nav.appendChild(el('div', { class: 'nav-brand' }, 'MAGIC'));
       const tabs = el('div', { class: 'nav-tabs' }, [
         mkTab('today', 'Today', '◉', { count: todayCards().length + planCards('priority', todayISO()).length }),
-        mkTab('daily', 'Daily', '🌅'),
-        mkTab('weekly', 'Weekly', '📆'),
         mkTab('projects', 'Projects', '◳', { count: visibleProjects().length }),
         el('div', { class: 'nav-sep' }),
         mkTab('ideas', 'Ideas', '💡', { secondary: true, count: visibleIdeas().length }),
@@ -4294,12 +4292,9 @@
       const header = document.getElementById('main-header');
       const body = document.getElementById('main-body');
       clearNode(header); clearNode(body);
-      const banner = nudgeBannerEl();
-      if (banner) body.appendChild(banner);
       const view = state.ui.active_view;
       if (view === 'today') { renderTodayPlan(header, body); return; }
-      if (view === 'daily') { renderDailyPlanner(header, body); return; }
-      if (view === 'weekly') { renderWeeklyPlanner(header, body); return; }
+      if (view === 'daily' || view === 'weekly') { state.ui.active_view = 'today'; render(); return; }
       if (view === 'ideas') { renderIdeasView(header, body); return; }
       if (view === 'automations') { state.ui.active_view = 'ideas'; render(); return; }
       if (view === 'goals') { renderGoalsView(header, body); return; }
@@ -4511,17 +4506,10 @@
       }, 0);
 
       // Unscheduled pool: cards for this date that don't have a scheduled_time yet
-      const todayEntryForDate = plannerEntry('daily', currentPlanDate);
-      const plannerTaskIds = todayEntryForDate ? plannerLinkedCardIds(todayEntryForDate) : [];
       const due = state.cards.filter(c => {
         if (c.archived) return false;
         if (c.scheduled_time) return false;
         if (!contextMatches(contextOf(c, 'card'))) return false;
-        if (plannerTaskIds.includes(c.id)) {
-          // Planner-linked only count if undated or dated to this view's date
-          if (!c.due || cardDueOnDate(c, currentPlanDate)) return true;
-          return false;
-        }
         if (!c.due) return false;
         if (cardDueOnDate(c, currentPlanDate)) return true;
         return false;
@@ -6286,8 +6274,7 @@
       rail.style.display = '';
 
       // Always: Today's list at the top, so tasks are one click away everywhere
-      const todayEntry = plannerEntry('daily', todayISO()) || ensurePlannerEntry('daily', todayISO());
-      rail.appendChild(renderMiniTodayList(todayEntry));
+      rail.appendChild(renderMiniTodayList());
 
       // Project-scoped sections below
       const proj = projectById(view);
@@ -6352,15 +6339,13 @@
       }
     }
 
-    function renderMiniTodayList(entry) {
-      const taskIds = plannerLinkedCardIds(entry);
+    function renderMiniTodayList() {
       const today = todayISO();
       const tomorrow = tomorrowISO();
       const ctxOk = (c) => contextMatches(contextOf(c, 'card'));
       const isDueTomorrow = (c) => c.due === 'tomorrow' || c.due === tomorrow;
-      const plannerCards = state.cards.filter(c => taskIds.includes(c.id) && ctxOk(c) && (isDueToday(c) || !c.due));
+      const plannerCards = [];
       const otherDueCards = state.cards.filter(c => {
-        if (taskIds.includes(c.id)) return false;
         if (c.archived && !c.done_at) return false;
         if (c.archived && c.done_at && c.done_at.slice(0, 10) !== today) return false;
         if (!ctxOk(c)) return false;
