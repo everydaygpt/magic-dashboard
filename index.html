@@ -11,6 +11,7 @@
     rel="stylesheet"
   />
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.11.1/lib/msal-browser.min.js"></script>
   <style>
     /* ---------- Reset & base ---------- */
     *, *::before, *::after { box-sizing: border-box; }
@@ -1903,6 +1904,113 @@
       sessionStorage.removeItem('cmd_auth');
       location.reload();
     }
+    // ---------- Microsoft Graph (calendar → tasks) ----------
+    const GRAPH_SCOPES = ['Calendars.Read'];
+    let _msalInstances = {};  // keyed by client_id
+    async function getMsalInstance(clientId, tenantId) {
+      const key = clientId + '|' + (tenantId || 'common');
+      if (_msalInstances[key]) return _msalInstances[key];
+      if (typeof msal === 'undefined') throw new Error('MSAL library not loaded yet — refresh the page.');
+      const inst = new msal.PublicClientApplication({
+        auth: {
+          clientId,
+          authority: 'https://login.microsoftonline.com/' + (tenantId || 'common'),
+          redirectUri: window.location.origin + window.location.pathname,
+        },
+        cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: false },
+      });
+      if (typeof inst.initialize === 'function') await inst.initialize();
+      _msalInstances[key] = inst;
+      return inst;
+    }
+    async function graphConnectSource(source) {
+      const inst = await getMsalInstance(source.auth.client_id, source.auth.tenant_id);
+      const result = await inst.loginPopup({ scopes: GRAPH_SCOPES, prompt: 'select_account' });
+      if (!result || !result.account) throw new Error('Login cancelled');
+      return result.account.homeAccountId;
+    }
+    async function graphGetToken(source) {
+      const inst = await getMsalInstance(source.auth.client_id, source.auth.tenant_id);
+      const account = source.auth.account_id
+        ? inst.getAccountByHomeId(source.auth.account_id)
+        : (inst.getAllAccounts()[0] || null);
+      if (!account) throw new Error('Not signed in — click Connect.');
+      try {
+        const r = await inst.acquireTokenSilent({ scopes: GRAPH_SCOPES, account });
+        return r.accessToken;
+      } catch (e) {
+        const r = await inst.acquireTokenPopup({ scopes: GRAPH_SCOPES, account });
+        return r.accessToken;
+      }
+    }
+    async function graphFetchEvents(source, startISO, endISO) {
+      const token = await graphGetToken(source);
+      const url = 'https://graph.microsoft.com/v1.0/me/calendar/calendarView'
+        + '?startDateTime=' + encodeURIComponent(startISO)
+        + '&endDateTime=' + encodeURIComponent(endISO)
+        + '&$select=id,subject,start,end,bodyPreview,body,organizer,attendees,isCancelled,location,responseStatus'
+        + '&$orderby=start/dateTime&$top=250';
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      const res = await fetch(url, {
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Prefer': 'outlook.timezone="' + tz + '"',
+        },
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error('Graph ' + res.status + ': ' + t.slice(0, 200));
+      }
+      const data = await res.json();
+      return (data.value || []).map(normalizeGraphEvent);
+    }
+    function normalizeGraphEvent(e) {
+      return {
+        id: e.id,
+        subject: e.subject || '(no subject)',
+        start_iso: (e.start && e.start.dateTime) || '',
+        end_iso: (e.end && e.end.dateTime) || '',
+        organizer: e.organizer && e.organizer.emailAddress ? (e.organizer.emailAddress.name || e.organizer.emailAddress.address || '') : '',
+        attendees: (e.attendees || []).map(a => (a.emailAddress && (a.emailAddress.name || a.emailAddress.address)) || '').filter(Boolean),
+        body_text: ((e.body && e.body.content) || e.bodyPreview || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
+        is_cancelled: !!e.isCancelled,
+        is_declined: e.responseStatus && e.responseStatus.response === 'declined',
+        location: (e.location && e.location.displayName) || '',
+      };
+    }
+    function mapEventToCard(evt, source) {
+      const mapping = source.mapping || {};
+      const start = new Date(evt.start_iso);
+      const end = new Date(evt.end_iso);
+      const durationMin = Math.max(15, Math.round((end - start) / 60000) || 30);
+      // Strip seconds and TZ from ISO so scheduled_time stays in YYYY-MM-DDTHH:MM:SS local form
+      const schedTime = evt.start_iso.slice(0, 19);
+      const titleTemplate = mapping.title_template || '{subject}';
+      const title = titleTemplate
+        .replace('{subject}', evt.subject)
+        .replace('{organizer}', evt.organizer)
+        .replace('{location}', evt.location);
+      const bodyStrategy = mapping.body_strategy || 'verbatim';
+      let notes = '';
+      if (bodyStrategy === 'verbatim') notes = evt.body_text || '';
+      else if (bodyStrategy === 'summarize') notes = evt.body_text ? evt.body_text.slice(0, 280) : '';
+      if (evt.location) notes = (notes ? notes + '\n\n' : '') + '📍 ' + evt.location;
+      if (evt.organizer) notes = (notes ? notes + '\n' : '') + '👤 ' + evt.organizer;
+      return {
+        title,
+        notes,
+        scheduled_time: schedTime,
+        duration_minutes: durationMin,
+        context: mapping.default_context || 'work',
+        auto_complete: mapping.auto_complete !== false,
+        source: { kind: 'calendar', source_id: source.id, event_id: evt.id },
+      };
+    }
+    function cardForCalendarEvent(sourceId, eventId) {
+      return state.cards.find(c => c.source && c.source.kind === 'calendar'
+        && c.source.source_id === sourceId && c.source.event_id === eventId);
+    }
+
     // ---------- Anthropic API (email → tasks) ----------
     const ANTHROPIC_KEY_STORAGE = 'cmd_anthropic_key';
     function getAnthropicKey() { return localStorage.getItem(ANTHROPIC_KEY_STORAGE) || ''; }
@@ -2454,6 +2562,7 @@
       }));
       s.ui.banner_dismissed = s.ui.banner_dismissed || {};
       s.ui.collapsed_sections = s.ui.collapsed_sections || {};
+      s.ui.calendar_sources = Array.isArray(s.ui.calendar_sources) ? s.ui.calendar_sources : [];
       s.ui.layout = s.ui.layout || {};
       if (typeof s.ui.layout.left_width !== 'number') s.ui.layout.left_width = 260;
       if (typeof s.ui.layout.right_width !== 'number') s.ui.layout.right_width = 300;
@@ -3829,6 +3938,9 @@
         el('p', { style: { fontSize: '12px' } }, 'Stored in this browser only. Used by the "From email" button to extract tasks from pasted email content.'),
         anthKeyInput,
         el('div', { style: { display: 'flex', gap: '6px', marginTop: '4px', marginBottom: '18px' } }, [anthSaveBtn]),
+
+        el('div', { class: 'modal-label' }, 'Calendar sources'),
+        renderCalendarSourcesSettingsEl(),
 
         el('div', { class: 'modal-label' }, 'Manual export / import'),
         el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '18px' } }, [
@@ -6566,6 +6678,264 @@
         ]),
       ]);
       setTimeout(() => titleInput.focus(), 50);
+    }
+
+    function renderCalendarSourcesSettingsEl() {
+      const wrap = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '18px' } });
+      const sources = state.ui.calendar_sources || [];
+      if (sources.length === 0) {
+        wrap.appendChild(el('p', {
+          style: { fontSize: '12px', color: 'var(--text-tertiary)', margin: '0' },
+        }, 'No sources yet. Add one to pull events from your calendar as tasks.'));
+      } else {
+        sources.forEach(src => {
+          const row = el('div', {
+            style: { padding: '10px 12px', border: '1px solid var(--border)', borderRadius: '8px', background: 'var(--overlay)' },
+          });
+          const connected = !!(src.auth && src.auth.account_id);
+          row.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' } }, [
+            el('strong', { style: { fontSize: '13px' } }, src.name),
+            el('span', { style: { fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: connected ? 'rgba(34, 197, 94, 0.18)' : 'rgba(248, 113, 113, 0.18)', color: connected ? '#22c55e' : '#f87171' } }, connected ? 'connected' : 'not connected'),
+          ]));
+          if (src.last_synced_at) {
+            row.appendChild(el('div', { style: { fontSize: '10px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', marginBottom: '6px' } }, 'Last synced: ' + new Date(src.last_synced_at).toLocaleString()));
+          }
+          const btns = el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px' } });
+          btns.appendChild(el('button', {
+            onClick: async () => {
+              try {
+                const accountId = await graphConnectSource(src);
+                setState(s => {
+                  const x = s.ui.calendar_sources.find(y => y.id === src.id);
+                  if (x) { x.auth = x.auth || {}; x.auth.account_id = accountId; }
+                });
+                openSettingsModal();
+              } catch (e) { alert('Connect failed: ' + e.message); }
+            },
+          }, connected ? 'Reconnect' : 'Connect'));
+          if (connected) {
+            btns.appendChild(el('button', {
+              class: 'primary',
+              onClick: () => { closeModal(); openCalendarImportModal(src.id); },
+            }, 'Sync now'));
+          }
+          btns.appendChild(el('button', { onClick: () => {
+            const newName = prompt('Source name:', src.name);
+            if (newName && newName.trim()) {
+              setState(s => {
+                const x = s.ui.calendar_sources.find(y => y.id === src.id);
+                if (x) x.name = newName.trim();
+              });
+              openSettingsModal();
+            }
+          } }, 'Rename'));
+          btns.appendChild(el('button', {
+            onClick: () => {
+              const ac = !(src.mapping && src.mapping.auto_complete !== false);
+              setState(s => {
+                const x = s.ui.calendar_sources.find(y => y.id === src.id);
+                if (x) { x.mapping = x.mapping || {}; x.mapping.auto_complete = !ac; }
+              });
+              openSettingsModal();
+            },
+          }, 'Auto-complete: ' + ((src.mapping && src.mapping.auto_complete !== false) ? 'ON' : 'OFF')));
+          btns.appendChild(el('button', {
+            onClick: () => {
+              const nextCtx = (src.mapping && src.mapping.default_context) === 'personal' ? 'work' : 'personal';
+              setState(s => {
+                const x = s.ui.calendar_sources.find(y => y.id === src.id);
+                if (x) { x.mapping = x.mapping || {}; x.mapping.default_context = nextCtx; }
+              });
+              openSettingsModal();
+            },
+          }, 'Context: ' + ((src.mapping && src.mapping.default_context) || 'work')));
+          btns.appendChild(el('button', {
+            class: 'danger',
+            onClick: () => {
+              if (!confirm('Remove calendar source "' + src.name + '"? This does not delete already-imported cards.')) return;
+              setState(s => { s.ui.calendar_sources = s.ui.calendar_sources.filter(x => x.id !== src.id); });
+              openSettingsModal();
+            },
+          }, 'Remove'));
+          row.appendChild(btns);
+          wrap.appendChild(row);
+        });
+      }
+      wrap.appendChild(el('button', {
+        style: { marginTop: '4px', alignSelf: 'flex-start' },
+        onClick: () => openAddCalendarSourceModal(),
+      }, '+ Add calendar source'));
+      return wrap;
+    }
+
+    function openAddCalendarSourceModal() {
+      let name = 'Outlook', clientId = '', tenantId = 'common', autoComplete = true, defaultContext = 'work';
+      const nameIn = el('input', { type: 'text', value: name, onInput: (e) => name = e.target.value });
+      const clientIn = el('input', { type: 'text', placeholder: 'Azure app (client) ID', onInput: (e) => clientId = e.target.value });
+      const tenantIn = el('input', { type: 'text', value: tenantId, onInput: (e) => tenantId = e.target.value });
+      const save = () => {
+        const cid = (clientId || '').trim();
+        if (!cid) { alert('Client ID is required.'); return; }
+        const id = uid('calsrc');
+        setState(s => {
+          s.ui.calendar_sources = s.ui.calendar_sources || [];
+          s.ui.calendar_sources.push({
+            id,
+            name: (name || 'Outlook').trim(),
+            type: 'graph',
+            auth: { client_id: cid, tenant_id: (tenantId || 'common').trim(), scopes: GRAPH_SCOPES, account_id: null },
+            mapping: {
+              default_context: defaultContext,
+              auto_complete: autoComplete,
+              title_template: '{subject}',
+              exclude_patterns: [],
+              include_declined: false,
+              body_strategy: 'verbatim',
+            },
+            last_synced_at: null,
+            enabled: true,
+          });
+        });
+        closeModal();
+        openSettingsModal();
+      };
+      openModal([
+        el('h3', {}, 'Add calendar source'),
+        el('p', { style: { fontSize: '12px', color: 'var(--text-tertiary)' } }, 'Register an Azure AD app (Entra ID → App registrations → SPA, redirect URI = this site) and paste the client ID.'),
+        el('div', { class: 'modal-label' }, 'Display name'),
+        nameIn,
+        el('div', { class: 'modal-label' }, 'Application (client) ID'),
+        clientIn,
+        el('div', { class: 'modal-label' }, 'Tenant (use "common" for multi-tenant + personal)'),
+        tenantIn,
+        el('div', { class: 'modal-actions' }, [
+          el('button', { onClick: closeModal }, 'Cancel'),
+          el('button', { class: 'primary', onClick: save }, 'Add'),
+        ]),
+      ]);
+      setTimeout(() => clientIn.focus(), 50);
+    }
+
+    function openCalendarImportModal(sourceId) {
+      const source = (state.ui.calendar_sources || []).find(s => s.id === sourceId);
+      if (!source) { alert('Calendar source not found.'); return; }
+      let stage = 'loading';
+      let events = [];
+      let selection = [];
+      let errorMsg = '';
+
+      const modal = el('div', { class: 'modal', style: { maxWidth: '680px' } });
+      const backdrop = el('div', { class: 'modal-backdrop' });
+      backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closeModal(); });
+      backdrop.appendChild(modal);
+      const modals = document.getElementById('modals');
+      clearNode(modals); modals.appendChild(backdrop);
+
+      const rebuild = () => {
+        clearNode(modal);
+        modal.appendChild(el('h3', {}, 'Pull from calendar — ' + source.name));
+        if (stage === 'loading') {
+          modal.appendChild(el('p', { style: { color: 'var(--text-tertiary)' } }, 'Fetching events from Microsoft Graph…'));
+          return;
+        }
+        if (stage === 'error') {
+          modal.appendChild(el('p', { style: { color: '#f43f5e', fontFamily: 'JetBrains Mono, monospace', fontSize: '12px' } }, errorMsg));
+          modal.appendChild(el('div', { class: 'modal-actions' }, [
+            el('button', { onClick: closeModal }, 'Close'),
+            el('button', { class: 'primary', onClick: () => loadEvents() }, 'Retry'),
+          ]));
+          return;
+        }
+        if (stage === 'review') {
+          if (events.length === 0) {
+            modal.appendChild(el('p', { style: { color: 'var(--text-tertiary)' } }, 'No events in the selected range.'));
+            modal.appendChild(el('div', { class: 'modal-actions' }, [el('button', { onClick: closeModal }, 'Close')]));
+            return;
+          }
+          modal.appendChild(el('p', { style: { fontSize: '12px', color: 'var(--text-tertiary)' } }, events.length + ' event' + (events.length === 1 ? '' : 's') + ' found. Uncheck anything you don\'t want imported.'));
+          const list = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '400px', overflowY: 'auto' } });
+          events.forEach((evt, i) => {
+            const existing = cardForCalendarEvent(source.id, evt.id);
+            const cb = el('input', {
+              type: 'checkbox',
+              onChange: (e) => { selection[i] = e.target.checked; },
+            });
+            cb.checked = selection[i] && !existing;
+            if (existing) cb.disabled = true;
+            const start = new Date(evt.start_iso);
+            const meta = start.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+              + ' · ' + start.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+            const row = el('label', {
+              style: { display: 'flex', gap: '10px', alignItems: 'flex-start', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--border)', cursor: existing ? 'default' : 'pointer', opacity: existing ? '0.55' : '1' },
+            }, [
+              cb,
+              el('div', { style: { flex: '1', minWidth: '0' } }, [
+                el('div', { style: { fontSize: '13px', fontWeight: '500' } }, evt.subject),
+                el('div', { style: { fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace' } },
+                  meta + (evt.location ? ' · ' + evt.location : '') + (existing ? ' · already imported' : '')),
+              ]),
+            ]);
+            list.appendChild(row);
+          });
+          modal.appendChild(list);
+          modal.appendChild(el('div', { class: 'modal-actions' }, [
+            el('button', { onClick: closeModal }, 'Cancel'),
+            el('button', { class: 'primary', onClick: commit }, 'Import selected'),
+          ]));
+        }
+      };
+
+      const commit = () => {
+        let created = 0;
+        setState(s => {
+          const src = (s.ui.calendar_sources || []).find(x => x.id === source.id);
+          events.forEach((evt, i) => {
+            if (!selection[i]) return;
+            if (cardForCalendarEvent(source.id, evt.id)) return;
+            const cardFields = mapEventToCard(evt, source);
+            const pos = s.cards.filter(c => c.project_id === 'inbox').length;
+            s.cards.push(Object.assign({
+              id: uid('card'),
+              project_id: 'inbox',
+              column_id: null,
+              position: pos,
+              due: cardFields.scheduled_time.slice(0, 10),
+              today_slot: null, today_position: 0, plan_date: null,
+              done_at: null, archived: false,
+              recurrence: null, recurrence_day: null, recurrence_interval: null, recurrence_unit: null,
+              missed_count: 0, last_missed_at: null,
+              subtasks: [],
+              created_at: now(),
+            }, cardFields));
+            created++;
+          });
+          if (src) src.last_synced_at = new Date().toISOString();
+        });
+        closeModal();
+        if (created) setTimeout(soundAdd, 0);
+      };
+
+      const loadEvents = async () => {
+        stage = 'loading';
+        rebuild();
+        try {
+          // Default window: now → end of tomorrow (local time)
+          const now = new Date();
+          const startISO = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+          const endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2);
+          const endISO = endDate.toISOString();
+          events = await graphFetchEvents(source, startISO, endISO);
+          events = events.filter(e => !e.is_cancelled && !e.is_declined);
+          selection = events.map(e => !cardForCalendarEvent(source.id, e.id));
+          stage = 'review';
+        } catch (e) {
+          stage = 'error';
+          errorMsg = e.message || String(e);
+        }
+        rebuild();
+      };
+      rebuild();
+      loadEvents();
     }
 
     function openEmailAnalyzeModal() {
