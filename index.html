@@ -534,30 +534,90 @@
       66%      { transform: translate(-40px, 50px) scale(0.95); }
     }
 
-    /* ---------- App grid — rails-free single column, drawers on demand ---------- */
+    /* ---------- App grid — Today is the app; Bank feeds it; Review surrounds it ----------
+       Below 1280: single column, rails as drawers.
+       1280–1599:  bank docks left; review stays drawer.
+       ≥1600:      both rails docked in flow. */
     #app {
       position: relative; z-index: 1;
       display: grid;
-      grid-template-columns: 0 0 0 1fr 0 0 0;
-      grid-template-rows: auto 1fr;
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: auto minmax(0, 1fr);
       height: 100vh;
-      gap: 8px; padding: 14px; padding-bottom: 46px;
+      gap: 10px; padding: 14px; padding-bottom: 46px;
     }
     #left-rail, #right-rail {
-      position: fixed !important;
+      position: fixed;
       top: 0; bottom: 0;
       width: 86vw; max-width: 340px;
       z-index: 50;
-      display: flex !important;
+      display: flex;
       transition: transform 220ms var(--ease);
       box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
     }
     #left-rail { left: 0; transform: translateX(-100%); }
     #right-rail { right: 0; transform: translateX(100%); }
-    #left-rail.open { transform: translateX(0) !important; }
-    #right-rail.open { transform: translateX(0) !important; }
+    #left-rail.open { transform: translateX(0); }
+    #right-rail.open { transform: translateX(0); }
     #left-resizer, #right-resizer, #left-expand, #right-expand { display: none; }
-    .main-shell { max-width: 1200px; width: 100%; margin: 0 auto; grid-column: 4 / 5; }
+    .main-shell {
+      min-width: 0;
+      width: 100%;
+      grid-column: 1 / -1;
+      grid-row: 2;
+      display: flex; flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    /* --- Laptop dock: Task Bank flows as left column --- */
+    @media (min-width: 1280px) {
+      #app {
+        grid-template-columns: 280px minmax(0, 1fr);
+      }
+      #left-rail {
+        position: relative;
+        transform: none;
+        width: 100%; max-width: none;
+        z-index: 1;
+        grid-column: 1;
+        grid-row: 2;
+        box-shadow: none;
+        border-radius: var(--radius-panel);
+      }
+      .main-shell { grid-column: 2; }
+      .nav-drawer-btn.left { display: none !important; }
+      .drawer-backdrop.left-only { display: none !important; }
+    }
+
+    /* --- Desktop dock: Review rail also flows --- */
+    @media (min-width: 1600px) {
+      #app {
+        grid-template-columns: 280px minmax(0, 1fr) 340px;
+      }
+      #right-rail {
+        position: relative;
+        transform: none;
+        width: 100%; max-width: none;
+        z-index: 1;
+        grid-column: 3;
+        grid-row: 2;
+        box-shadow: none;
+        border-radius: var(--radius-panel);
+      }
+      .nav-drawer-btn.right { display: none !important; }
+      .drawer-backdrop { display: none !important; }
+    }
+
+    /* --- Ultra-wide: give rails more breathing room --- */
+    @media (min-width: 1920px) {
+      #app {
+        grid-template-columns: 320px minmax(0, 1fr) 380px;
+        gap: 14px;
+        padding: 18px;
+        padding-bottom: 46px;
+      }
+    }
     #top-nav {
       grid-column: 1 / -1;
       grid-row: 1;
@@ -668,12 +728,16 @@
       .nav-right { gap: 4px; }
       .nav-right .context-pills button { padding: 4px 8px; font-size: 10px; }
     }
-    @media (max-width: 560px) {
-      #top-nav { padding: 5px 8px; gap: 6px; }
+    /* Tablet / small-laptop: icon-only nav tabs so "Activity" doesn't truncate.
+       Keep the active tab's label so the nav never looks broken. */
+    @media (max-width: 1024px) {
       .nav-tab .nav-tab-count { display: none; }
       .nav-tab-icon { font-size: 15px; }
-      /* Icon-only tabs below 560px; secondary tabs still reachable via horizontal scroll */
       .nav-tab span:not(.nav-tab-icon):not(.nav-tab-count) { display: none; }
+      .nav-tab.active span:not(.nav-tab-icon):not(.nav-tab-count) { display: inline; }
+    }
+    @media (max-width: 560px) {
+      #top-nav { padding: 5px 8px; gap: 6px; }
       .nav-right .context-pills button:not(.active) { display: none; }
       .top3 { grid-template-columns: 1fr !important; }
       .schedule-hour { font-size: 10px; padding: 6px 6px; }
@@ -1630,6 +1694,152 @@
       white-space: pre-wrap;
     }
 
+    /* ---------- Project view-mode toggle + table ---------- */
+    .view-toggle {
+      display: inline-flex;
+      background: var(--surface-sub);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 2px;
+      gap: 2px;
+      margin-right: 6px;
+    }
+    .view-toggle button {
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-tertiary);
+      background: transparent;
+      transition: all 120ms var(--ease);
+      display: inline-flex; align-items: center; gap: 5px;
+    }
+    .view-toggle button:hover { color: var(--text-secondary); }
+    .view-toggle button.active {
+      background: var(--overlay-strong);
+      color: var(--text-primary);
+    }
+    .view-toggle .icon { font-size: 13px; }
+
+    .project-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 13px;
+      background: rgba(18, 18, 36, 0.35);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    html[data-theme="personal"] .project-table { background: rgba(249, 244, 234, 0.55); }
+    html[data-theme="work-light"] .project-table { background: rgba(255, 252, 246, 0.7); }
+    .project-table thead th {
+      text-align: left;
+      padding: 10px 14px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-tertiary);
+      border-bottom: 1px solid var(--border);
+      background: var(--overlay);
+      white-space: nowrap;
+      user-select: none;
+      cursor: pointer;
+      position: sticky; top: 0;
+      z-index: 1;
+    }
+    .project-table thead th.sortable:hover { color: var(--text-secondary); }
+    .project-table thead th.sorted { color: var(--text-primary); }
+    .project-table thead th .sort-arrow {
+      margin-left: 4px;
+      font-size: 9px;
+      opacity: 0.7;
+    }
+    .project-table tbody tr {
+      transition: background 120ms var(--ease);
+      cursor: pointer;
+    }
+    .project-table tbody tr:hover { background: var(--overlay); }
+    .project-table tbody tr.expanded { background: var(--overlay-strong); }
+    .project-table tbody tr.done-row td:not(.pt-expand) { opacity: 0.55; }
+    .project-table tbody tr.done-row .pt-title { text-decoration: line-through; }
+    .project-table tbody td {
+      padding: 10px 14px;
+      border-top: 1px solid var(--border);
+      vertical-align: top;
+    }
+    .project-table tbody tr:first-child td { border-top: 0; }
+    .pt-title {
+      color: var(--text-primary);
+      font-weight: 500;
+      line-height: 1.3;
+      display: flex; align-items: center; gap: 8px;
+      min-width: 220px;
+    }
+    .pt-notes {
+      display: block;
+      font-size: 11px;
+      color: var(--text-tertiary);
+      margin-top: 3px;
+      line-height: 1.4;
+      font-weight: 400;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 380px;
+    }
+    .pt-col-pill {
+      display: inline-flex; align-items: center;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      font-family: 'JetBrains Mono', monospace;
+      background: var(--overlay);
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .pt-col-pill.done { background: rgba(34, 197, 94, 0.12); color: #86efac; border-color: rgba(34, 197, 94, 0.3); }
+    html[data-theme="personal"] .pt-col-pill.done,
+    html[data-theme="work-light"] .pt-col-pill.done { color: #15803d; background: rgba(34, 197, 94, 0.15); }
+    .pt-cell-muted { color: var(--text-tertiary); font-family: 'JetBrains Mono', monospace; font-size: 11px; white-space: nowrap; }
+    .pt-cell-num { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-secondary); }
+    .pt-expanded-row td {
+      padding: 0;
+      background: var(--surface-sub);
+      border-top: 0;
+    }
+    .pt-expanded-inner {
+      padding: 14px 18px;
+      border-top: 1px solid var(--border-strong);
+    }
+    .pt-expanded-inner .card { background: transparent; border: 0; box-shadow: none; padding: 0; }
+    .pt-empty {
+      padding: 40px 20px;
+      text-align: center;
+      color: var(--text-tertiary);
+      font-style: italic;
+      font-size: 13px;
+    }
+
+    @media (max-width: 1024px) {
+      .project-table thead th.pt-hide-md,
+      .project-table tbody td.pt-hide-md { display: none; }
+    }
+    @media (max-width: 768px) {
+      .project-table thead th.pt-hide-sm,
+      .project-table tbody td.pt-hide-sm { display: none; }
+      .project-table tbody td, .project-table thead th { padding: 8px 10px; }
+    }
+
     /* ---------- Right rail ---------- */
     #right-rail { padding: 18px 0; }
     .rail-panel { padding: 0 18px; flex: 1; overflow: auto; min-height: 0; }
@@ -2441,7 +2651,14 @@
           { id: uid('goal'), title: 'Move every day', target: '20+ minutes', cadence: 'daily', target_count: 1, unit: '', context: 'personal', checkins: [], created_at: now() },
           { id: uid('goal'), title: 'Strength workouts', target: '3x / week', cadence: 'weekly', target_count: 3, unit: '', context: 'personal', checkins: [], created_at: now() },
         ],
-        ui: { active_view: projId, theme: 'dark', context_filter: 'all', banner_dismissed: {}, idea_categories: ['Automation', 'Tech build', 'Home project', 'Book / reading'] },
+        ui: {
+          active_view: projId, theme: 'dark', context_filter: 'all',
+          banner_dismissed: {}, collapsed_sections: {}, calendar_sources: [],
+          idea_categories: ['Automation', 'Tech build', 'Home project', 'Book / reading'],
+          layout: { left_width: 280, right_width: 340, left_hidden: false, right_hidden: false, task_bank_on_right: false },
+          project_view_mode: 'kanban',
+          project_table_sort: { key: 'column', dir: 'asc' },
+        },
       };
     }
 
@@ -2652,13 +2869,15 @@
       if (typeof s.ui.layout.left_hidden !== 'boolean') s.ui.layout.left_hidden = false;
       if (typeof s.ui.layout.right_hidden !== 'boolean') s.ui.layout.right_hidden = false;
       if (typeof s.ui.layout.task_bank_on_right !== 'boolean') s.ui.layout.task_bank_on_right = false;
+      if (s.ui.project_view_mode !== 'kanban' && s.ui.project_view_mode !== 'table') s.ui.project_view_mode = 'kanban';
+      if (!s.ui.project_table_sort || typeof s.ui.project_table_sort !== 'object') s.ui.project_table_sort = { key: 'column', dir: 'asc' };
       return s;
     }
 
     function loadState() {
       try {
         const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) return defaultState();
+        if (!raw) return migrateState(defaultState());
         const migrated = migrateState(JSON.parse(raw));
         // Persist the migrated shape so localStorage reflects current schema
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated)); } catch (e) {}
@@ -3681,10 +3900,11 @@
     }
 
     function applyLayout() {
-      // Rails are always off-canvas drawers now — grid has a single 1fr content column.
+      // CSS media queries own the grid now: single column below 1280, bank-docked
+      // at 1280–1599, both rails docked at 1600+. Clear any legacy inline override.
       const app = document.getElementById('app');
       if (!app) return;
-      app.style.gridTemplateColumns = '0 0 0 1fr 0 0 0';
+      app.style.removeProperty('grid-template-columns');
     }
 
     function attachLayoutHandlers() {
@@ -3722,10 +3942,10 @@
       };
       leftR.addEventListener('pointerdown', startDrag('left'));
       rightR.addEventListener('pointerdown', startDrag('right'));
-      leftR.addEventListener('dblclick', () => setState(s => { s.ui.layout.left_hidden = true; }));
-      rightR.addEventListener('dblclick', () => setState(s => { s.ui.layout.right_hidden = true; }));
-      leftE.addEventListener('click', () => setState(s => { s.ui.layout.left_hidden = false; }));
-      rightE.addEventListener('click', () => setState(s => { s.ui.layout.right_hidden = false; }));
+      leftR.addEventListener('dblclick', () => setState(s => { s.ui.layout = s.ui.layout || {}; s.ui.layout.left_hidden = true; }));
+      rightR.addEventListener('dblclick', () => setState(s => { s.ui.layout = s.ui.layout || {}; s.ui.layout.right_hidden = true; }));
+      leftE.addEventListener('click', () => setState(s => { s.ui.layout = s.ui.layout || {}; s.ui.layout.left_hidden = false; }));
+      rightE.addEventListener('click', () => setState(s => { s.ui.layout = s.ui.layout || {}; s.ui.layout.right_hidden = false; }));
     }
 
     function applyTheme() {
@@ -6022,7 +6242,19 @@
             class: 'icon-btn', title: 'Set project link (URL)',
             onClick: () => promptProjectLink(proj),
           }, '🔗');
+      const viewMode = state.ui.project_view_mode || 'kanban';
+      const viewToggle = el('div', { class: 'view-toggle', title: 'Switch between kanban and table' }, [
+        el('button', {
+          class: viewMode === 'kanban' ? 'active' : '',
+          onClick: () => { if (viewMode !== 'kanban') setState(s => { s.ui.project_view_mode = 'kanban'; }); },
+        }, [el('span', { class: 'icon' }, '⊞'), el('span', {}, 'Cards')]),
+        el('button', {
+          class: viewMode === 'table' ? 'active' : '',
+          onClick: () => { if (viewMode !== 'table') setState(s => { s.ui.project_view_mode = 'table'; }); },
+        }, [el('span', { class: 'icon' }, '☰'), el('span', {}, 'Table')]),
+      ]);
       header.appendChild(el('div', { class: 'main-actions' }, [
+        viewToggle,
         linkBtn,
         el('button', { class: 'icon-btn', title: 'Archive Done now', onClick: () => {
           const count = proj.columns.filter(c => isDoneColumn(proj, c.id)).reduce((n, c) => n + cardsForColumn(proj.id, c.id).length, 0);
@@ -6033,6 +6265,11 @@
         el('button', { class: 'icon-btn', title: 'Change accent', onClick: () => openAccentModal(proj) }, '🎨'),
         el('button', { class: 'icon-btn danger', title: 'Delete project', onClick: () => openDeleteProjectModal(proj) }, '🗑'),
       ]));
+
+      if (viewMode === 'table') {
+        renderProjectTable(body, proj);
+        return;
+      }
 
       const board = el('div', { class: 'board' });
       proj.columns.forEach(col => board.appendChild(columnEl(proj, col)));
@@ -6073,6 +6310,121 @@
           });
         },
       });
+    }
+
+    function renderProjectTable(body, proj) {
+      const allCards = state.cards.filter(c => c.project_id === proj.id && !c.archived);
+      if (allCards.length === 0) {
+        body.appendChild(el('div', { class: 'pt-empty' }, 'No cards yet. Switch back to Cards view to add some.'));
+        return;
+      }
+      const colById = Object.fromEntries(proj.columns.map(col => [col.id, col]));
+      const colOrder = Object.fromEntries(proj.columns.map((col, i) => [col.id, i]));
+
+      const sort = state.ui.project_table_sort || { key: 'column', dir: 'asc' };
+      const getSortValue = (c, key) => {
+        switch (key) {
+          case 'title': return (c.title || '').toLowerCase();
+          case 'column': return (colOrder[c.column_id] ?? 99) + '-' + (colById[c.column_id]?.name || '');
+          case 'due': return c.due ? resolveDueISO(c.due) || c.due : '\uffff';
+          case 'scheduled': return c.scheduled_time || '\uffff';
+          case 'duration': return c.duration_minutes || 0;
+          case 'subtasks': return (c.subtasks || []).length;
+          case 'created': return c.created_at || 0;
+          default: return '';
+        }
+      };
+      const sorted = [...allCards].sort((a, b) => {
+        const av = getSortValue(a, sort.key);
+        const bv = getSortValue(b, sort.key);
+        let cmp = 0;
+        if (typeof av === 'number' && typeof bv === 'number') cmp = av - bv;
+        else cmp = String(av).localeCompare(String(bv));
+        // Tiebreak by column then position so kanban order is preserved within groups.
+        if (cmp === 0) {
+          cmp = (colOrder[a.column_id] ?? 99) - (colOrder[b.column_id] ?? 99);
+          if (cmp === 0) cmp = (a.position || 0) - (b.position || 0);
+        }
+        return sort.dir === 'desc' ? -cmp : cmp;
+      });
+
+      const headerCell = (label, key, extraClass) => {
+        const isSorted = sort.key === key;
+        return el('th', {
+          class: (extraClass || '') + ' sortable' + (isSorted ? ' sorted' : ''),
+          onClick: () => setState(s => {
+            const cur = s.ui.project_table_sort || { key: 'column', dir: 'asc' };
+            if (cur.key === key) cur.dir = cur.dir === 'asc' ? 'desc' : 'asc';
+            else { cur.key = key; cur.dir = 'asc'; }
+            s.ui.project_table_sort = cur;
+          }),
+        }, [
+          el('span', {}, label),
+          isSorted ? el('span', { class: 'sort-arrow' }, sort.dir === 'asc' ? '▲' : '▼') : null,
+        ]);
+      };
+
+      const thead = el('thead', {}, [
+        el('tr', {}, [
+          headerCell('Title', 'title'),
+          headerCell('Column', 'column'),
+          headerCell('Due', 'due', 'pt-hide-sm'),
+          headerCell('Scheduled', 'scheduled', 'pt-hide-md'),
+          headerCell('Dur', 'duration', 'pt-hide-md'),
+          headerCell('Sub', 'subtasks', 'pt-hide-md'),
+          headerCell('Created', 'created', 'pt-hide-md'),
+        ]),
+      ]);
+
+      const tbody = el('tbody');
+      sorted.forEach(c => {
+        const isExpanded = expandedCardId === c.id;
+        const col = colById[c.column_id];
+        const isDone = col ? isDoneColumn(proj, col.id) : false;
+        const subs = c.subtasks || [];
+        const subsDone = subs.length ? countSubtaskProgress(subs) : { done: 0, total: 0 };
+        const dueLabel = formatDueLabel(c.due);
+        const schedLabel = formatScheduledTimeLabel(c.scheduled_time);
+        const created = c.created_at ? new Date(c.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
+
+        const titleCell = el('td', {}, [
+          el('div', { class: 'pt-title' }, [
+            el('span', {}, c.title || '(untitled)'),
+          ]),
+          c.notes ? el('span', { class: 'pt-notes' }, c.notes.replace(/\s+/g, ' ').trim()) : null,
+        ]);
+
+        const row = el('tr', {
+          class: (isExpanded ? 'expanded ' : '') + (isDone && !isExpanded ? 'done-row' : ''),
+          dataset: { cardId: c.id },
+          onClick: (e) => {
+            if (e.target.closest('a,button,input,textarea,select')) return;
+            expandedCardId = isExpanded ? null : c.id;
+            expandedItemKey = null;
+            render();
+          },
+        }, [
+          titleCell,
+          el('td', {}, el('span', { class: 'pt-col-pill' + (isDone ? ' done' : '') }, col ? col.name : '—')),
+          el('td', { class: 'pt-hide-sm' }, dueLabel ? el('span', { class: 'pt-cell-muted' }, dueLabel) : el('span', { class: 'pt-cell-muted' }, '—')),
+          el('td', { class: 'pt-hide-md' }, schedLabel ? el('span', { class: 'pt-cell-muted' }, schedLabel) : el('span', { class: 'pt-cell-muted' }, '—')),
+          el('td', { class: 'pt-hide-md' }, c.duration_minutes ? el('span', { class: 'pt-cell-num' }, formatDuration(c.duration_minutes)) : el('span', { class: 'pt-cell-muted' }, '—')),
+          el('td', { class: 'pt-hide-md' }, subs.length ? el('span', { class: 'pt-cell-num' }, subsDone.done + '/' + subsDone.total) : el('span', { class: 'pt-cell-muted' }, '—')),
+          el('td', { class: 'pt-hide-md' }, created ? el('span', { class: 'pt-cell-muted' }, created) : el('span', { class: 'pt-cell-muted' }, '—')),
+        ]);
+        tbody.appendChild(row);
+
+        if (isExpanded) {
+          const inner = el('div', { class: 'pt-expanded-inner' });
+          inner.addEventListener('click', (e) => e.stopPropagation());
+          inner.appendChild(cardEl(c, proj));
+          tbody.appendChild(el('tr', { class: 'pt-expanded-row' }, [
+            el('td', { colspan: 7 }, inner),
+          ]));
+        }
+      });
+
+      body.appendChild(el('table', { class: 'project-table' }, [thead, tbody]));
     }
 
     function columnEl(proj, col) {
