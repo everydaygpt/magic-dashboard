@@ -1793,9 +1793,10 @@
       text-overflow: ellipsis;
       max-width: 380px;
     }
+    .pt-col-wrap { position: relative; display: inline-block; }
     .pt-col-pill {
-      display: inline-flex; align-items: center;
-      padding: 2px 8px;
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 3px 8px;
       border-radius: 999px;
       font-size: 10px;
       font-weight: 600;
@@ -1806,10 +1807,55 @@
       color: var(--text-secondary);
       border: 1px solid var(--border);
       white-space: nowrap;
+      cursor: pointer;
+      transition: all 120ms var(--ease);
     }
+    .pt-col-pill:hover { background: var(--overlay-strong); color: var(--text-primary); border-color: var(--border-strong); }
+    .pt-col-pill.open { background: var(--overlay-strong); color: var(--text-primary); border-color: var(--border-strong); }
     .pt-col-pill.done { background: rgba(34, 197, 94, 0.12); color: #86efac; border-color: rgba(34, 197, 94, 0.3); }
+    .pt-col-pill.done:hover { background: rgba(34, 197, 94, 0.2); }
     html[data-theme="personal"] .pt-col-pill.done,
     html[data-theme="work-light"] .pt-col-pill.done { color: #15803d; background: rgba(34, 197, 94, 0.15); }
+    .pt-col-chevron { font-size: 8px; opacity: 0.7; margin-top: 1px; }
+
+    .pt-col-popover {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      z-index: 20;
+      min-width: 180px;
+      background: var(--panel-solid);
+      border: 1px solid var(--border-strong);
+      border-radius: 10px;
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--border);
+      padding: 4px;
+      display: flex; flex-direction: column; gap: 1px;
+      animation: popoverIn 140ms var(--ease);
+    }
+    @keyframes popoverIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .pt-col-opt {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      text-align: left;
+      transition: background 100ms var(--ease), color 100ms var(--ease);
+      cursor: pointer;
+    }
+    .pt-col-opt:hover { background: var(--overlay-strong); color: var(--text-primary); }
+    .pt-col-opt.selected { color: var(--text-primary); background: var(--overlay); }
+    .pt-col-opt-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--text-tertiary); flex-shrink: 0;
+    }
+    .pt-col-opt-dot.done { background: #22c55e; box-shadow: 0 0 6px rgba(34, 197, 94, 0.5); }
+    .pt-col-opt-name { flex: 1; white-space: nowrap; }
+    .pt-col-opt-check { color: var(--accent-from); font-size: 11px; }
     .pt-cell-muted { color: var(--text-tertiary); font-family: 'JetBrains Mono', monospace; font-size: 11px; white-space: nowrap; }
     .pt-cell-num { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-secondary); }
     .pt-expanded-row td {
@@ -2602,6 +2648,7 @@
     let state = loadState();
     let expandedCardId = null;
     let expandedItemKey = null;
+    let openColumnPopoverCardId = null;
     let saveTimer = null;
     let snarkLine = pick(SNARK_LINES);
     let currentPlanDate = todayISO();
@@ -3208,6 +3255,54 @@
     function updateCard(id, patch) {
       setState(s => { const c = s.cards.find(x => x.id === id); if (c) Object.assign(c, patch); });
     }
+
+    // Move a card to another column within the same project. Handles Done-column
+    // side effects (done_at, activity log, sound, recurrence clone) and positions
+    // the card at the end of the destination.
+    function moveCardToColumn(cardId, newColumnId) {
+      let spawnClone = null;
+      setState(s => {
+        const c = s.cards.find(x => x.id === cardId);
+        if (!c || c.project_id === 'inbox') return;
+        const p = s.projects.find(x => x.id === c.project_id);
+        if (!p) return;
+        const dest = p.columns.find(col => col.id === newColumnId);
+        if (!dest) return;
+        const beforeCid = c.column_id;
+        if (beforeCid === newColumnId) return;
+        const pos = s.cards.filter(x => x.project_id === p.id && x.column_id === newColumnId && !x.archived).length;
+        c.column_id = newColumnId;
+        c.position = pos;
+        const movedToDone = isDoneColumn(p, newColumnId);
+        const movedOutOfDone = beforeCid && isDoneColumn(p, beforeCid) && !movedToDone;
+        if (movedToDone) {
+          c.done_at = now();
+          logActivity('card_done', 'Completed "' + c.title + '"', { project_id: p.id, source_type: 'card', source_id: c.id, context: p.context });
+          if (c.recurrence) {
+            const firstNonDone = p.columns.find(col => !isDoneColumn(p, col.id));
+            if (firstNonDone) {
+              spawnClone = {
+                id: uid('card'), project_id: p.id, column_id: firstNonDone.id,
+                position: s.cards.filter(x => x.project_id === p.id && x.column_id === firstNonDone.id && !x.archived).length,
+                title: c.title, notes: c.notes, due: null,
+                today_slot: null, today_position: 0, plan_date: null,
+                context: null, done_at: null, archived: false,
+                recurrence: c.recurrence, created_at: now(),
+              };
+            }
+          }
+        } else if (movedOutOfDone) {
+          c.done_at = null;
+        }
+        if (spawnClone) s.cards.push(spawnClone);
+      });
+      if (typeof soundDone === 'function' && newColumnId) {
+        const card = state.cards.find(x => x.id === cardId);
+        const proj = card && state.projects.find(x => x.id === card.project_id);
+        if (proj && isDoneColumn(proj, newColumnId)) setTimeout(soundDone, 0);
+      }
+    }
+
     function deleteCard(id) {
       setState(s => { s.cards = s.cards.filter(c => c.id !== id); });
       if (expandedCardId === id) expandedCardId = null;
@@ -6312,6 +6407,49 @@
       });
     }
 
+    function buildColumnPicker(c, proj, colById) {
+      const col = colById[c.column_id];
+      const isDone = col ? isDoneColumn(proj, col.id) : false;
+      const isOpen = openColumnPopoverCardId === c.id;
+
+      const pill = el('button', {
+        class: 'pt-col-pill' + (isDone ? ' done' : '') + (isOpen ? ' open' : ''),
+        title: 'Click to move to another column',
+        onClick: (e) => {
+          e.stopPropagation();
+          openColumnPopoverCardId = isOpen ? null : c.id;
+          render();
+        },
+      }, [
+        el('span', {}, col ? col.name : '—'),
+        el('span', { class: 'pt-col-chevron' }, '▾'),
+      ]);
+
+      const wrap = el('div', { class: 'pt-col-wrap' }, [pill]);
+      if (!isOpen) return wrap;
+
+      const popover = el('div', { class: 'pt-col-popover', onClick: (e) => e.stopPropagation() });
+      proj.columns.forEach(opt => {
+        const optIsDone = isDoneColumn(proj, opt.id);
+        const selected = opt.id === c.column_id;
+        popover.appendChild(el('button', {
+          class: 'pt-col-opt' + (selected ? ' selected' : '') + (optIsDone ? ' done' : ''),
+          onClick: (e) => {
+            e.stopPropagation();
+            openColumnPopoverCardId = null;
+            if (opt.id !== c.column_id) moveCardToColumn(c.id, opt.id);
+            else render();
+          },
+        }, [
+          el('span', { class: 'pt-col-opt-dot' + (optIsDone ? ' done' : '') }),
+          el('span', { class: 'pt-col-opt-name' }, opt.name),
+          selected ? el('span', { class: 'pt-col-opt-check' }, '✓') : null,
+        ]));
+      });
+      wrap.appendChild(popover);
+      return wrap;
+    }
+
     function renderProjectTable(body, proj) {
       const allCards = state.cards.filter(c => c.project_id === proj.id && !c.archived);
       if (allCards.length === 0) {
@@ -6398,14 +6536,15 @@
           class: (isExpanded ? 'expanded ' : '') + (isDone && !isExpanded ? 'done-row' : ''),
           dataset: { cardId: c.id },
           onClick: (e) => {
-            if (e.target.closest('a,button,input,textarea,select')) return;
+            if (e.target.closest('a,button,input,textarea,select,.pt-col-wrap')) return;
             expandedCardId = isExpanded ? null : c.id;
             expandedItemKey = null;
+            openColumnPopoverCardId = null;
             render();
           },
         }, [
           titleCell,
-          el('td', {}, el('span', { class: 'pt-col-pill' + (isDone ? ' done' : '') }, col ? col.name : '—')),
+          el('td', {}, buildColumnPicker(c, proj, colById)),
           el('td', { class: 'pt-hide-sm' }, dueLabel ? el('span', { class: 'pt-cell-muted' }, dueLabel) : el('span', { class: 'pt-cell-muted' }, '—')),
           el('td', { class: 'pt-hide-md' }, schedLabel ? el('span', { class: 'pt-cell-muted' }, schedLabel) : el('span', { class: 'pt-cell-muted' }, '—')),
           el('td', { class: 'pt-hide-md' }, c.duration_minutes ? el('span', { class: 'pt-cell-num' }, formatDuration(c.duration_minutes)) : el('span', { class: 'pt-cell-muted' }, '—')),
@@ -8113,6 +8252,13 @@
           closeDrawers();
         }
       });
+      // Close the table column-picker popover when clicking outside it
+      document.addEventListener('click', (e) => {
+        if (openColumnPopoverCardId && !e.target.closest('.pt-col-wrap')) {
+          openColumnPopoverCardId = null;
+          render();
+        }
+      });
       // Kick off a background pull from the gist; re-render if remote is newer
       if (getSyncPat()) {
         firstLoadSync().catch(e => console.warn(e));
@@ -8131,6 +8277,7 @@
         }
         if (e.key !== 'Escape') return;
         if (document.querySelector('.modal-backdrop')) { closeModal(); return; }
+        if (openColumnPopoverCardId) { openColumnPopoverCardId = null; render(); return; }
         if (expandedCardId || expandedItemKey) {
           expandedCardId = null; expandedItemKey = null; render();
         }
