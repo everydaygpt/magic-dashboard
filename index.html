@@ -634,16 +634,13 @@
     }
     .nav-drawer-btn:hover { color: var(--text-primary); background: var(--overlay-strong); }
 
-    /* Mobile drawer backdrop */
+    /* Drawer backdrop — no blur, subtle dim so main content stays readable */
     .drawer-backdrop {
       display: none;
       position: fixed; inset: 0;
-      background: rgba(0, 0, 0, 0.5);
+      background: rgba(0, 0, 0, 0.28);
       z-index: 40;
-      backdrop-filter: blur(2px);
     }
-    body.left-drawer-open .drawer-backdrop,
-    body.right-drawer-open .drawer-backdrop { display: block; }
 
     /* ------ Responsive breakpoints ------ */
     /* Drawer toggles always visible since rails are always drawers now */
@@ -1727,7 +1724,7 @@
     /* ---------- Modal ---------- */
     .modal-backdrop {
       position: fixed; inset: 0;
-      background: rgba(11, 11, 20, 0.7); backdrop-filter: blur(8px);
+      background: rgba(11, 11, 20, 0.55);
       z-index: 100;
       display: flex; align-items: center; justify-content: center;
       animation: fade-in 180ms var(--ease);
@@ -1736,10 +1733,11 @@
     .modal {
       background: var(--panel-solid); border: 1px solid var(--border-strong);
       border-radius: 16px; padding: 20px 22px;
-      min-width: 340px; max-width: 540px;
+      width: min(540px, calc(100vw - 24px));
+      min-width: 0;
       box-shadow: 0 40px 80px rgba(0, 0, 0, 0.6);
       animation: pop-in 200ms var(--spring);
-      max-height: 80vh; overflow: auto;
+      max-height: 90vh; overflow: auto;
     }
     @keyframes pop-in { from { transform: scale(0.94); opacity: 0; } to { transform: scale(1); opacity: 1; } }
     .modal h3 { margin: 0 0 14px; font-size: 15px; font-weight: 600; }
