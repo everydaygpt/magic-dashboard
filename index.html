@@ -2988,6 +2988,21 @@
       const d = new Date();
       return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
     }
+    // Return the LOCAL date portion (YYYY-MM-DD) of an ISO timestamp. Critical for
+    // comparing done_at (UTC, set via now()) against local-format dates like
+    // currentPlanDate. Slicing the raw ISO string would use UTC midnight, which
+    // gives the wrong day when a task is completed late in the evening.
+    function localDateOfISO(iso) {
+      if (!iso) return null;
+      // Schedule strings stored as local "YYYY-MM-DDTHH:MM:SS" (no Z) — slice is correct.
+      // Anything else (e.g. now() output ending in Z) needs Date parsing.
+      if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(iso) && !iso.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(iso)) {
+        return iso.slice(0, 10);
+      }
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return iso.slice(0, 10);
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
     function isDueToday(c) {
       if (!c.due) return false;
       if (c.due === 'today') return true;
@@ -3066,7 +3081,7 @@
           if (c.today_slot !== slot || c.plan_date !== date) return false;
           if (!contextMatches(contextOf(c, 'card'))) return false;
           // Keep completed-today tasks visible (strike-through); hide older archived.
-          if (c.archived) return c.done_at && c.done_at.slice(0, 10) === date;
+          if (c.archived) return c.done_at && localDateOfISO(c.done_at) === date;
           return true;
         })
         .sort((a, b) => a.today_position - b.today_position);
@@ -3317,7 +3332,7 @@
         if (c.project_id === 'inbox' || !c.column_id) return;
         const p = state.projects.find(x => x.id === c.project_id);
         if (!p || !isDoneColumn(p, c.column_id)) return;
-        const doneDate = c.done_at.slice(0, 10);
+        const doneDate = localDateOfISO(c.done_at);
         if (doneDate < today) { c.archived = true; changed = true; }
       });
       state.ui.last_seen_day = today;
@@ -3847,7 +3862,7 @@
         if (c.scheduled_time.slice(0, 10) !== dateIso) return false;
         if (c.archived) {
           // Keep completed-today tasks on the schedule (strike-through) until day flips.
-          return c.done_at && c.done_at.slice(0, 10) === dateIso;
+          return c.done_at && localDateOfISO(c.done_at) === dateIso;
         }
         return true;
       });
@@ -5750,7 +5765,7 @@
         // For today: keep done-today cards visible so completed checkboxes stick
         if (isToday) {
           if (c.archived && !c.done_at) return false;
-          if (c.archived && c.done_at && c.done_at.slice(0, 10) !== date) return false;
+          if (c.archived && c.done_at && localDateOfISO(c.done_at) !== date) return false;
           return isDueToday(c);
         }
         // For future dates: hide archived entirely
@@ -6935,7 +6950,7 @@
       const plannerCards = [];
       const otherDueCards = state.cards.filter(c => {
         if (c.archived && !c.done_at) return false;
-        if (c.archived && c.done_at && c.done_at.slice(0, 10) !== today) return false;
+        if (c.archived && c.done_at && localDateOfISO(c.done_at) !== today) return false;
         if (!ctxOk(c)) return false;
         return isDueToday(c);
       });
