@@ -1856,6 +1856,47 @@
     .pt-col-opt-dot.done { background: #22c55e; box-shadow: 0 0 6px rgba(34, 197, 94, 0.5); }
     .pt-col-opt-name { flex: 1; white-space: nowrap; }
     .pt-col-opt-check { color: var(--accent-from); font-size: 11px; }
+
+    .pt-lane-pill {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      font-family: 'JetBrains Mono', monospace;
+      border: 1px solid var(--border);
+      background: var(--overlay);
+      color: var(--text-secondary);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 120ms var(--ease);
+    }
+    .pt-lane-pill:hover { background: var(--overlay-strong); border-color: var(--border-strong); color: var(--text-primary); }
+    .pt-lane-pill.none { color: var(--text-tertiary); border-style: dashed; }
+    .pt-lane-pill.me {
+      background: rgba(96, 165, 250, 0.14);
+      color: #93c5fd;
+      border-color: rgba(96, 165, 250, 0.4);
+    }
+    .pt-lane-pill.me:hover { background: rgba(96, 165, 250, 0.22); }
+    .pt-lane-pill.ai {
+      background: rgba(168, 85, 247, 0.14);
+      color: #d8b4fe;
+      border-color: rgba(168, 85, 247, 0.45);
+    }
+    .pt-lane-pill.ai:hover { background: rgba(168, 85, 247, 0.22); }
+    html[data-theme="personal"] .pt-lane-pill.me,
+    html[data-theme="work-light"] .pt-lane-pill.me {
+      color: #1d4ed8;
+      background: rgba(96, 165, 250, 0.18);
+    }
+    html[data-theme="personal"] .pt-lane-pill.ai,
+    html[data-theme="work-light"] .pt-lane-pill.ai {
+      color: #6b21a8;
+      background: rgba(168, 85, 247, 0.16);
+    }
+
     .pt-cell-muted { color: var(--text-tertiary); font-family: 'JetBrains Mono', monospace; font-size: 11px; white-space: nowrap; }
     .pt-cell-num { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-secondary); }
     .pt-expanded-row td {
@@ -2720,6 +2761,7 @@
         duration_minutes: null,
         scheduled_time: null,
         subtasks: [],
+        lane: null,
         created_at: now(),
       };
     }
@@ -2918,6 +2960,8 @@
       if (typeof s.ui.layout.task_bank_on_right !== 'boolean') s.ui.layout.task_bank_on_right = false;
       if (s.ui.project_view_mode !== 'kanban' && s.ui.project_view_mode !== 'table') s.ui.project_view_mode = 'kanban';
       if (!s.ui.project_table_sort || typeof s.ui.project_table_sort !== 'object') s.ui.project_table_sort = { key: 'column', dir: 'asc' };
+      // Lane field: 'me' = I'll do it, 'ai' = hand off to AI, null = uncategorized
+      s.cards = (s.cards || []).map(c => ({ ...c, lane: c.lane === 'me' || c.lane === 'ai' ? c.lane : null }));
       return s;
     }
 
@@ -3258,10 +3302,13 @@
       if (!t) return null;
       const existing = findLiveCardByTitle(t);
       if (existing) return existing;
-      const cardId = uid('card');
+      let cardId = null;
       setState(s => {
         const pos = s.cards.filter(c => c.project_id === 'inbox').length;
-        s.cards.push({ id: cardId, project_id: 'inbox', column_id: null, position: pos, title: t, notes: '', due: null, today_slot: null, today_position: 0, context: context || null, created_at: now() });
+        const c = card('inbox', null, pos, t, '', null);
+        c.context = context || null;
+        cardId = c.id;
+        s.cards.push(c);
         logActivity('card_created', 'Added task "' + t + '" to bank', { source_type: 'card', source_id: cardId, context });
       });
       return state.cards.find(c => c.id === cardId);
@@ -3823,30 +3870,29 @@
     function createScheduledTaskAt(dateIso, hour, minute) {
       const title = (prompt('New task at ' + String(hour).padStart(2, '0') + ':' + String(minute || 0).padStart(2, '0') + ' — title:') || '').trim();
       if (!title) return;
+      const schedTime = dateIso + 'T' + String(hour).padStart(2, '0') + ':' + String(minute || 0).padStart(2, '0') + ':00';
       const existing = findLiveCardByTitle(title);
       if (existing) {
         setState(s => {
           const c = s.cards.find(x => x.id === existing.id);
           if (c) {
-            c.scheduled_time = dateIso + 'T' + String(hour).padStart(2, '0') + ':' + String(minute || 0).padStart(2, '0') + ':00';
+            c.scheduled_time = schedTime;
             if (!c.duration_minutes) c.duration_minutes = 30;
           }
         });
         return;
       }
       const ctx = state.ui.context_filter !== 'all' ? state.ui.context_filter : 'work';
-      const id = uid('card');
+      // Use the card() factory so this task has the SAME shape as a Task Bank
+      // item — subtasks, recurrence, archive flags, etc. all default the same
+      // way. A scheduled task is just an inbox card with a scheduled_time.
+      const c = card('inbox', null, 0, title, '', null);
+      c.context = ctx;
+      c.scheduled_time = schedTime;
+      c.duration_minutes = 30;
       setState(s => {
-        s.cards.push({
-          id, project_id: 'inbox', column_id: null, position: 0,
-          title, notes: '', due: null,
-          today_slot: null, today_position: 0, plan_date: null,
-          context: ctx, done_at: null, archived: false,
-          recurrence: null, duration_minutes: 30,
-          scheduled_time: dateIso + 'T' + String(hour).padStart(2, '0') + ':' + String(minute || 0).padStart(2, '0') + ':00',
-          created_at: now(),
-        });
-        logActivity('card_created', 'Added scheduled task "' + title + '"', { source_type: 'card', source_id: id, context: ctx });
+        s.cards.push(c);
+        logActivity('card_created', 'Added scheduled task "' + title + '"', { source_type: 'card', source_id: c.id, context: ctx });
       });
       soundAdd();
     }
@@ -6363,8 +6409,16 @@
           onClick: () => { if (viewMode !== 'table') setState(s => { s.ui.project_view_mode = 'table'; }); },
         }, [el('span', { class: 'icon' }, '☰'), el('span', {}, 'Table')]),
       ]);
+      const aiCount = state.cards.filter(c => c.project_id === proj.id && !c.archived && c.lane === 'ai').length;
+      const aiExportBtn = el('button', {
+        class: 'icon-btn' + (aiCount === 0 ? ' disabled' : ''),
+        title: aiCount === 0 ? 'No AI-lane tasks yet — mark some with 🤖 in table view' : 'Export ' + aiCount + ' AI-lane task' + (aiCount === 1 ? '' : 's') + ' as a prompt',
+        style: aiCount === 0 ? { opacity: 0.4, cursor: 'not-allowed' } : {},
+        onClick: () => { if (aiCount > 0) openAiPromptExportModal(proj); },
+      }, '🤖');
       header.appendChild(el('div', { class: 'main-actions' }, [
         viewToggle,
+        aiExportBtn,
         linkBtn,
         el('button', { class: 'icon-btn', title: 'Archive Done now', onClick: () => {
           const count = proj.columns.filter(c => isDoneColumn(proj, c.id)).reduce((n, c) => n + cardsForColumn(proj.id, c.id).length, 0);
@@ -6420,6 +6474,19 @@
           });
         },
       });
+    }
+
+    // Cycles a card's lane: none → me → ai → none. Click in table to assign.
+    function buildLanePill(c) {
+      const lane = c.lane || null;
+      const label = lane === 'ai' ? '🤖 AI' : lane === 'me' ? '👤 Me' : '— set';
+      const cls = 'pt-lane-pill' + (lane === 'ai' ? ' ai' : lane === 'me' ? ' me' : ' none');
+      const next = lane === null ? 'me' : lane === 'me' ? 'ai' : null;
+      return el('button', {
+        class: cls,
+        title: 'Click to cycle: none → Me → AI',
+        onClick: (e) => { e.stopPropagation(); updateCard(c.id, { lane: next }); },
+      }, label);
     }
 
     function buildColumnPicker(c, proj, colById) {
@@ -6484,6 +6551,7 @@
           case 'duration': return c.duration_minutes || 0;
           case 'subtasks': return (c.subtasks || []).length;
           case 'created': return c.created_at || 0;
+          case 'lane': return c.lane === 'ai' ? 0 : c.lane === 'me' ? 1 : 2;
           default: return '';
         }
       };
@@ -6520,6 +6588,7 @@
       const thead = el('thead', {}, [
         el('tr', {}, [
           headerCell('Title', 'title'),
+          headerCell('Lane', 'lane'),
           headerCell('Column', 'column'),
           headerCell('Due', 'due', 'pt-hide-sm'),
           headerCell('Scheduled', 'scheduled', 'pt-hide-md'),
@@ -6551,7 +6620,7 @@
           class: (isExpanded ? 'expanded ' : '') + (isDone && !isExpanded ? 'done-row' : ''),
           dataset: { cardId: c.id },
           onClick: (e) => {
-            if (e.target.closest('a,button,input,textarea,select,.pt-col-wrap')) return;
+            if (e.target.closest('a,button,input,textarea,select,.pt-col-wrap,.pt-lane-pill')) return;
             expandedCardId = isExpanded ? null : c.id;
             expandedItemKey = null;
             openColumnPopoverCardId = null;
@@ -6559,6 +6628,7 @@
           },
         }, [
           titleCell,
+          el('td', {}, buildLanePill(c)),
           el('td', {}, buildColumnPicker(c, proj, colById)),
           el('td', { class: 'pt-hide-sm' }, dueLabel ? el('span', { class: 'pt-cell-muted' }, dueLabel) : el('span', { class: 'pt-cell-muted' }, '—')),
           el('td', { class: 'pt-hide-md' }, schedLabel ? el('span', { class: 'pt-cell-muted' }, schedLabel) : el('span', { class: 'pt-cell-muted' }, '—')),
@@ -6573,7 +6643,7 @@
           inner.addEventListener('click', (e) => e.stopPropagation());
           inner.appendChild(cardEl(c, proj));
           tbody.appendChild(el('tr', { class: 'pt-expanded-row' }, [
-            el('td', { colspan: 7 }, inner),
+            el('td', { colspan: 8 }, inner),
           ]));
         }
       });
@@ -6760,6 +6830,13 @@
           style: { fontSize: '10px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace' },
           title: 'Completing this card spawns a fresh copy',
         }, '↺ spawns copy on done') : null,
+      ]));
+      // Lane: who's doing this — me or hand it to AI?
+      node.appendChild(el('div', { class: 'card-edit-row' }, [
+        el('span', { style: { fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.05em' } }, 'Lane'),
+        dueOpt('— none', !c.lane, () => updateCard(c.id, { lane: null })),
+        dueOpt('👤 me', c.lane === 'me', () => updateCard(c.id, { lane: 'me' })),
+        dueOpt('🤖 ai', c.lane === 'ai', () => updateCard(c.id, { lane: 'ai' })),
       ]));
       if (c.today_slot) {
         node.appendChild(el('div', { class: 'card-edit-row' }, [
@@ -7672,6 +7749,110 @@
         }
       };
       rebuild();
+    }
+
+    // Build the AI handoff prompt from the project's AI-lane cards.
+    function buildAiPromptText(proj) {
+      const aiCards = state.cards
+        .filter(c => c.project_id === proj.id && !c.archived && c.lane === 'ai')
+        .sort((a, b) => (a.position || 0) - (b.position || 0));
+
+      const lines = [];
+      lines.push('You are helping me work through the following tasks for project "' + proj.name + '" (context: ' + proj.context + ').');
+      lines.push('');
+      lines.push('Before you do ANY work or write ANY code, ask me clarifying questions about each numbered item below — one item at a time, in order. For each item, ask 2–4 specific questions covering:');
+      lines.push('  • the goal / acceptance criteria (what does "done" look like?)');
+      lines.push('  • any constraints I have not made explicit (file paths, libraries, conventions, scope)');
+      lines.push('  • assumptions you would otherwise make that you want me to confirm');
+      lines.push('  • edge cases, failure modes, or rollback considerations');
+      lines.push('');
+      lines.push('Wait for my answers on each item before moving to the next. Do not begin implementation until I have answered every clarifying question and explicitly said "go".');
+      lines.push('');
+      lines.push('Tasks:');
+      lines.push('');
+      aiCards.forEach((c, i) => {
+        const num = i + 1;
+        lines.push(num + '. ' + (c.title || '(untitled)'));
+        if (c.notes && c.notes.trim()) {
+          c.notes.split('\n').forEach(n => { if (n.trim()) lines.push('   Notes: ' + n.trim()); });
+        }
+        const subs = (c.subtasks || []).filter(s => s && s.title);
+        if (subs.length) {
+          lines.push('   Subtasks:');
+          subs.forEach(s => {
+            lines.push('     - [' + (s.done ? 'x' : ' ') + '] ' + s.title);
+            (s.subtasks || []).forEach(s2 => {
+              if (s2 && s2.title) lines.push('       - [' + (s2.done ? 'x' : ' ') + '] ' + s2.title);
+            });
+          });
+        }
+        if (c.due) lines.push('   Due: ' + (formatDueLabel(c.due) || c.due));
+        lines.push('');
+      });
+      lines.push('Begin by asking your clarifying questions for task 1. Number them. Wait for my answers before proceeding to task 2.');
+      return lines.join('\n');
+    }
+
+    function openAiPromptExportModal(proj) {
+      const text = buildAiPromptText(proj);
+      const aiCount = state.cards.filter(c => c.project_id === proj.id && !c.archived && c.lane === 'ai').length;
+
+      const ta = el('textarea', {
+        readonly: 'true',
+        style: {
+          width: '100%', minHeight: '320px', maxHeight: '50vh',
+          padding: '12px 14px', borderRadius: '10px',
+          background: 'var(--surface-sub)',
+          border: '1px solid var(--border)',
+          fontFamily: 'JetBrains Mono, monospace',
+          fontSize: '12px', lineHeight: '1.55',
+          color: 'var(--text-primary)', resize: 'vertical',
+        },
+      });
+      ta.value = text;
+
+      const status = el('span', { style: { fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace' } }, '');
+
+      const copyBtn = el('button', {
+        class: 'text-btn primary',
+        onClick: async () => {
+          try {
+            await navigator.clipboard.writeText(ta.value);
+            status.textContent = 'Copied to clipboard.';
+          } catch (e) {
+            ta.select(); document.execCommand('copy');
+            status.textContent = 'Copied (fallback).';
+          }
+          setTimeout(() => { status.textContent = ''; }, 2400);
+        },
+      }, 'Copy prompt');
+
+      const dlBtn = el('button', {
+        class: 'text-btn',
+        onClick: () => {
+          const safe = proj.name.replace(/[^a-z0-9-_ ]/gi, '').replace(/\s+/g, '-').toLowerCase() || 'project';
+          const blob = new Blob([ta.value], { type: 'text/markdown' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url; a.download = safe + '-ai-prompt.md';
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        },
+      }, '⬇ .md');
+
+      openModal([
+        el('div', { class: 'modal-title' }, 'Export AI prompt — ' + proj.name),
+        el('div', { style: { fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '10px' } },
+          aiCount + ' AI-lane task' + (aiCount === 1 ? '' : 's') + '. The prompt instructs the AI to ask clarifying questions on each item before doing any work.'),
+        ta,
+        el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginTop: '12px' } }, [
+          copyBtn,
+          dlBtn,
+          el('div', { class: 'spacer', style: { flex: 1 } }),
+          status,
+          el('button', { class: 'text-btn', onClick: () => closeModal() }, 'Close'),
+        ]),
+      ]);
     }
 
     function openAccentModal(proj) {
