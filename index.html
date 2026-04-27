@@ -7473,6 +7473,11 @@
         viewToggle,
         aiExportBtn,
         linkBtn,
+        el('button', {
+          class: 'icon-btn',
+          title: 'Bulk log completions — paste a list, match or create as done',
+          onClick: () => openProjectBulkLogModal(proj),
+        }, '📝'),
         el('button', { class: 'icon-btn', title: 'Archive Done now', onClick: () => {
           const count = proj.columns.filter(c => isDoneColumn(proj, c.id)).reduce((n, c) => n + cardsForColumn(proj.id, c.id).length, 0);
           if (count === 0) { alert('No cards in any Done column.'); return; }
@@ -8241,6 +8246,216 @@
         });
       });
       setTimeout(soundDone, 0);
+    }
+
+    // ---------- Bulk-log completions for a project ----------
+    // Token-overlap match — robust against word reorder, minor edits.
+    function tokenize(s) {
+      return (s || '').toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter(t => t.length >= 3);
+    }
+    function findBestCardMatch(query, candidates) {
+      const qTokens = tokenize(query);
+      if (qTokens.length === 0) return null;
+      const qSet = new Set(qTokens);
+      let best = null, bestScore = 0;
+      for (const c of candidates) {
+        const cTokens = tokenize(c.title);
+        if (cTokens.length === 0) continue;
+        const shared = cTokens.filter(t => qSet.has(t)).length;
+        if (shared === 0) continue;
+        // Jaccard-ish: shared / max(len) — favors high overlap regardless of order
+        const score = shared / Math.max(qTokens.length, cTokens.length);
+        // Substring boost — exact substring match is a strong signal
+        const subBoost = c.title.toLowerCase().includes(query.toLowerCase().trim()) ? 0.3 : 0;
+        const finalScore = score + subBoost;
+        if (finalScore > bestScore) { bestScore = finalScore; best = c; }
+      }
+      // Threshold: require at least 50% token overlap OR substring match
+      return bestScore >= 0.5 ? { card: best, score: bestScore } : null;
+    }
+
+    function openProjectBulkLogModal(proj) {
+      const candidates = state.cards.filter(c => c.project_id === proj.id && !c.archived && !c.done_at);
+      const doneCol = proj.columns.find(col => /done|complete|finished|shipped/i.test(col.name));
+      const doneColName = doneCol ? doneCol.name : null;
+
+      const textarea = el('textarea', {
+        rows: 10,
+        placeholder: 'Set up the Azure AD app\nSent welcome email to new hire\nUpdated the README\nReviewed Q3 budget',
+        style: {
+          width: '100%', minHeight: '180px',
+          fontFamily: 'inherit', fontSize: '13px', lineHeight: '1.55',
+          padding: '10px 12px',
+          background: 'var(--card)', border: '1px solid var(--border)',
+          borderRadius: '8px', color: 'var(--text-primary)', resize: 'vertical',
+        },
+      });
+
+      const previewBox = el('div', {
+        style: {
+          maxHeight: '260px', overflowY: 'auto',
+          padding: '10px', borderRadius: '8px',
+          background: 'var(--surface-sub)', border: '1px solid var(--border)',
+        },
+      });
+
+      const applyBtn = el('button', { class: 'primary', disabled: true }, 'Apply');
+
+      // Per-line state with skip toggle
+      let rows = [];
+
+      const renderPreview = () => {
+        clearNode(previewBox);
+        const active = rows.filter(r => !r.skip);
+        const matchCount = active.filter(r => r.match).length;
+        const newCount = active.filter(r => !r.match).length;
+
+        if (rows.length === 0) {
+          previewBox.appendChild(el('div', {
+            style: { color: 'var(--text-tertiary)', fontStyle: 'italic', fontSize: '12px' },
+          }, 'Paste a list above. Each line becomes one completion.'));
+          applyBtn.disabled = true;
+          applyBtn.textContent = 'Apply';
+          return;
+        }
+
+        previewBox.appendChild(el('div', {
+          style: { fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', fontWeight: '600', fontFamily: 'JetBrains Mono, monospace' },
+        }, 'Will complete ' + matchCount + ', create ' + newCount + (doneColName ? ' in ' + doneColName : ' as archived')));
+
+        rows.forEach((r, idx) => {
+          const isMatch = !!r.match;
+          const isSkip = r.skip;
+          const node = el('div', {
+            style: {
+              display: 'flex', gap: '8px', alignItems: 'flex-start',
+              padding: '8px 10px', marginBottom: '4px',
+              background: isSkip ? 'transparent' : 'var(--card)',
+              border: '1px solid ' + (isSkip ? 'var(--border)' : (isMatch ? 'rgba(34, 197, 94, 0.3)' : 'rgba(124, 58, 237, 0.3)')),
+              borderRadius: '6px',
+              opacity: isSkip ? 0.4 : 1,
+              fontSize: '12px',
+            },
+          });
+          // Skip toggle
+          const skipBtn = el('button', {
+            style: { width: '20px', height: '20px', borderRadius: '4px', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-tertiary)', flexShrink: '0', cursor: 'pointer', fontSize: '12px' },
+            title: isSkip ? 'Include' : 'Skip',
+            onClick: () => { rows[idx].skip = !isSkip; renderPreview(); },
+          }, isSkip ? '○' : '✓');
+          node.appendChild(skipBtn);
+          // Status icon + text
+          const tag = isMatch
+            ? el('span', { style: { color: '#22c55e', fontWeight: '700', fontFamily: 'JetBrains Mono, monospace', fontSize: '11px', flexShrink: '0' } }, 'MATCH')
+            : el('span', { style: { color: '#a78bfa', fontWeight: '700', fontFamily: 'JetBrains Mono, monospace', fontSize: '11px', flexShrink: '0' } }, 'NEW');
+          node.appendChild(tag);
+          const body = el('div', { style: { flex: '1', minWidth: '0' } });
+          body.appendChild(el('div', {}, r.text));
+          if (isMatch) {
+            body.appendChild(el('div', {
+              style: { fontSize: '10px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', marginTop: '2px' },
+            }, '→ ' + r.match.card.title + ' · ' + Math.round(r.match.score * 100) + '%'));
+          }
+          node.appendChild(body);
+          previewBox.appendChild(node);
+        });
+
+        applyBtn.disabled = (matchCount + newCount) === 0;
+        applyBtn.textContent = (matchCount + newCount) > 0
+          ? 'Apply (' + (matchCount + newCount) + ')'
+          : 'Apply';
+      };
+
+      const updateFromText = () => {
+        const lines = textarea.value.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        // Drop list markers if present
+        const cleaned = lines.map(l => l.replace(/^[\-\*•>\d.\)\]]+\s*/, '').trim()).filter(Boolean);
+        rows = cleaned.map(text => ({
+          text,
+          match: findBestCardMatch(text, candidates),
+          skip: false,
+        }));
+        renderPreview();
+      };
+
+      textarea.addEventListener('input', updateFromText);
+
+      applyBtn.addEventListener('click', () => {
+        const active = rows.filter(r => !r.skip);
+        if (active.length === 0) return;
+        if (!confirm('Apply ' + active.length + ' completion' + (active.length === 1 ? '' : 's') + ' to ' + proj.name + '?')) return;
+
+        setState(s => {
+          // Track which existing cards have been matched in this batch (avoid double-matching)
+          const usedIds = new Set();
+          active.forEach(r => {
+            if (r.match && !usedIds.has(r.match.card.id)) {
+              usedIds.add(r.match.card.id);
+              const c = s.cards.find(x => x.id === r.match.card.id);
+              if (!c) return;
+              if (doneCol) {
+                // Move to Done column AND set done_at (matches handleCardDrop semantics)
+                c.column_id = doneCol.id;
+                c.position = s.cards.filter(x => x.project_id === proj.id && x.column_id === doneCol.id).length;
+                c.done_at = now();
+                logActivity('card_done', 'Completed "' + c.title + '"', { project_id: proj.id, source_type: 'card', source_id: c.id, context: proj.context });
+              } else {
+                // No Done column — archive with done_at
+                c.done_at = now();
+                c.archived = true;
+                logActivity('card_done', 'Completed "' + c.title + '"', { project_id: proj.id, source_type: 'card', source_id: c.id, context: proj.context });
+              }
+            } else {
+              // Create new card already done
+              const targetCol = doneCol || proj.columns[proj.columns.length - 1];
+              const card = {
+                id: uid('card'),
+                project_id: proj.id,
+                column_id: targetCol ? targetCol.id : null,
+                position: s.cards.filter(x => x.project_id === proj.id && x.column_id === (targetCol ? targetCol.id : null)).length,
+                title: r.text,
+                notes: '',
+                due: null,
+                today_slot: null, today_position: 0, plan_date: null,
+                context: proj.context,
+                done_at: now(),
+                archived: !doneCol,
+                recurrence: null,
+                created_at: now(),
+                source: { kind: 'bulk-log' },
+              };
+              s.cards.push(card);
+              logActivity('card_done', 'Logged "' + r.text + '"', { project_id: proj.id, source_type: 'card', source_id: card.id, context: proj.context });
+            }
+          });
+        });
+        setTimeout(soundDone, 0);
+        closeModal();
+      });
+
+      const subhead = doneColName
+        ? 'Cards will move to "' + doneColName + '" or be created there.'
+        : 'No "Done" column found — completions will be archived.';
+
+      openModal([
+        el('h3', {}, 'Bulk log completions · ' + proj.name),
+        el('div', {
+          style: { fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '10px', fontStyle: 'italic' },
+        }, subhead),
+        el('div', { class: 'modal-label' }, 'Paste a list of things you did (one per line)'),
+        textarea,
+        el('div', { class: 'modal-label', style: { marginTop: '12px' } }, 'Preview'),
+        previewBox,
+        el('div', { class: 'modal-actions' }, [
+          el('button', { onClick: closeModal }, 'Cancel'),
+          applyBtn,
+        ]),
+      ]);
+      setTimeout(() => textarea.focus(), 50);
+      renderPreview();
     }
 
     // ---------- Right rail ----------
