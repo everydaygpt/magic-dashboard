@@ -68,72 +68,72 @@
     }
 
     html[data-theme="personal"] {
-      /* Notion Linen — low-blue-light warm palette for multi-hour focus.
-         Text primary 15.2:1, secondary 6.8:1 contrast (WCAG AA+). */
-      --canvas: #EFE8DC;
-      --panel: rgba(249, 244, 234, 0.92);
-      --panel-solid: #F9F4EA;
+      /* Clean cool light — slate neutrals + the violet/pink accent gradient
+         from dark mode for brand consistency. WCAG AA contrast. */
+      --canvas: #F5F6FA;
+      --panel: rgba(255, 255, 255, 0.92);
+      --panel-solid: #FFFFFF;
       --card: #FFFFFF;
-      --card-hover: #FFFFFF;
-      --surface-sub: rgba(249, 244, 234, 0.7);
+      --card-hover: #F1F2F8;
+      --surface-sub: #FAFBFD;
       --surface-elev: #FFFFFF;
-      --overlay: rgba(31, 27, 22, 0.04);
-      --overlay-strong: rgba(31, 27, 22, 0.09);
-      --border: rgba(212, 200, 176, 0.7);
-      --border-strong: rgba(92, 83, 73, 0.35);
-      --text-primary: #1F1B16;
-      --text-secondary: #5C5349;
-      --text-tertiary: #8B8170;
-      --accent-from: #C2410C;
-      --accent-to: #0E7490;
-      --blob-1: #D97706;
-      --blob-2: #0E7490;
-      --blob-3: #A16207;
-      --blob-opacity: 0.18;
-      --snark-bg: rgba(249, 244, 234, 0.95);
-    }
-    html[data-theme="personal"] body {
-      font-feature-settings: 'ss01', 'cv02', 'cv11';
+      --overlay: rgba(15, 23, 42, 0.04);
+      --overlay-strong: rgba(15, 23, 42, 0.08);
+      --border: rgba(148, 163, 184, 0.25);
+      --border-strong: rgba(100, 116, 139, 0.45);
+      --text-primary: #0F172A;
+      --text-secondary: #475569;
+      --text-tertiary: #94A3B8;
+      --accent-from: #7c3aed;
+      --accent-to: #ec4899;
+      --danger: #dc2626;
+      --work: #2563eb;
+      --personal: #0d9488;
+      --blob-1: #a78bfa;
+      --blob-2: #f9a8d4;
+      --blob-3: #7dd3fc;
+      --blob-opacity: 0.20;
+      --snark-bg: rgba(245, 246, 250, 0.9);
     }
     html[data-theme="personal"] .main-title {
-      font-weight: 800;
-      letter-spacing: -0.02em;
+      font-weight: 700;
+      letter-spacing: -0.01em;
     }
     html[data-theme="personal"] .rail-heading,
     html[data-theme="personal"] .rail-panel-title,
     html[data-theme="personal"] .plan-section-title {
-      color: #8B5A2E;
+      color: var(--text-secondary);
     }
     html[data-theme="personal"] .card {
-      box-shadow: 0 1px 3px rgba(31, 27, 22, 0.06), 0 1px 0 rgba(255, 255, 255, 0.6) inset;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
       transition: transform 180ms var(--spring), box-shadow 180ms var(--ease), background 180ms var(--ease);
     }
     html[data-theme="personal"] .card:hover {
-      transform: translateY(-3px) rotate(-0.5deg);
-      box-shadow: 0 10px 24px rgba(31, 27, 22, 0.12), 0 0 30px -5px var(--accent-from);
+      transform: translateY(-2px);
+      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(124, 58, 237, 0.15);
     }
     html[data-theme="personal"] .plan-card:hover {
-      transform: translateY(-2px) rotate(0.6deg);
+      transform: translateY(-2px);
     }
     html[data-theme="personal"] .goal-card {
-      box-shadow: 0 1px 4px rgba(31, 27, 22, 0.06), 0 1px 0 rgba(255, 255, 255, 0.6) inset;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
     }
     html[data-theme="personal"] #snark-bar {
-      color: #6B5D48;
+      color: var(--text-tertiary);
     }
     html[data-theme="personal"] .context-pill.active {
-      background: linear-gradient(135deg, rgba(194, 65, 12, 0.22), rgba(14, 116, 144, 0.22));
+      background: linear-gradient(135deg, rgba(124, 58, 237, 0.14), rgba(236, 72, 153, 0.14));
     }
-    /* Schedule slot striping — alternate rows in warm paper tone for visual rhythm */
+    /* Schedule slot striping — subtle cool gray alternation */
     html[data-theme="personal"] .schedule-row:nth-child(even) .schedule-slot {
-      background: rgba(239, 232, 220, 0.5);
+      background: rgba(241, 245, 249, 0.6);
     }
-    html[data-theme="personal"] .schedule { background: rgba(249, 244, 234, 0.6); }
-    html[data-theme="personal"] .schedule-row.now { background: rgba(194, 65, 12, 0.08); }
+    html[data-theme="personal"] .schedule { background: rgba(250, 251, 253, 0.8); }
+    html[data-theme="personal"] .schedule-row.now { background: rgba(124, 58, 237, 0.06); }
     html[data-theme="personal"] .schedule-hour {
-      color: #1F1B16;
-      background: rgba(239, 232, 220, 0.6);
-      border-right: 1px solid rgba(92, 83, 73, 0.25);
+      color: var(--text-primary);
+      background: rgba(241, 245, 249, 0.7);
+      border-right: 1px solid var(--border);
     }
 
     /* Morning Magic planner */
@@ -570,51 +570,13 @@
       overflow: hidden;
     }
 
-    /* --- Laptop dock: Task Bank flows as left column --- */
-    @media (min-width: 1280px) {
+    /* Rails are drawer-only at all viewports — Today owns the full screen.
+       Bank + Pulse panels live inline on Today; project views can summon the
+       right-rail drawer for Notes/Files/Team. */
+    @media (min-width: 1024px) {
       #app {
-        grid-template-columns: 280px minmax(0, 1fr);
-      }
-      #left-rail {
-        position: relative;
-        transform: none;
-        width: 100%; max-width: none;
-        z-index: 1;
-        grid-column: 1;
-        grid-row: 2;
-        box-shadow: none;
-        border-radius: var(--radius-panel);
-      }
-      .main-shell { grid-column: 2; }
-      .nav-drawer-btn.left { display: none !important; }
-      .drawer-backdrop.left-only { display: none !important; }
-    }
-
-    /* --- Desktop dock: Review rail also flows --- */
-    @media (min-width: 1600px) {
-      #app {
-        grid-template-columns: 280px minmax(0, 1fr) 340px;
-      }
-      #right-rail {
-        position: relative;
-        transform: none;
-        width: 100%; max-width: none;
-        z-index: 1;
-        grid-column: 3;
-        grid-row: 2;
-        box-shadow: none;
-        border-radius: var(--radius-panel);
-      }
-      .nav-drawer-btn.right { display: none !important; }
-      .drawer-backdrop { display: none !important; }
-    }
-
-    /* --- Ultra-wide: give rails more breathing room --- */
-    @media (min-width: 1920px) {
-      #app {
-        grid-template-columns: 320px minmax(0, 1fr) 380px;
         gap: 14px;
-        padding: 18px;
+        padding: 16px;
         padding-bottom: 46px;
       }
     }
@@ -972,12 +934,75 @@
       padding: 10px 12px; font-size: 13px; cursor: grab;
       transition: all 150ms var(--ease); line-height: 1.35;
       position: relative;
+      display: flex; gap: 8px; align-items: flex-start;
     }
     .bank-card:hover { background: var(--card-hover); transform: translateX(2px); }
     .bank-card:active { cursor: grabbing; }
+    .bank-card.done { opacity: 0.55; }
+    .bank-card.done .bank-card-title { text-decoration: line-through; }
+    .bank-card-body { flex: 1; min-width: 0; }
+    .bank-card-check {
+      flex-shrink: 0;
+      width: 18px; height: 18px;
+      border: 1.5px solid var(--border-strong);
+      border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700;
+      color: transparent;
+      cursor: pointer;
+      transition: all 120ms var(--ease);
+      margin-top: 1px;
+      background: transparent;
+    }
+    .bank-card:hover .bank-card-check {
+      border-color: var(--accent-from);
+    }
+    .bank-card-check.checked {
+      background: linear-gradient(135deg, #22c55e, #16a34a);
+      border-color: #16a34a;
+      color: white;
+    }
     .bank-card-ctx {
       position: absolute; top: 8px; right: 8px;
       width: 5px; height: 5px; border-radius: 50%;
+    }
+    .project-chip {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 1px 6px 1px 4px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      font-family: 'JetBrains Mono', monospace; font-size: 10px;
+      max-width: 140px;
+    }
+    .project-chip > span:last-child {
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .project-chip-dot {
+      width: 8px; height: 8px; border-radius: 2px;
+      flex-shrink: 0;
+    }
+    .pulse-row.attention { gap: 10px; align-items: flex-start; }
+    .pulse-row-check {
+      flex-shrink: 0;
+      width: 18px; height: 18px;
+      border: 1.5px solid var(--border-strong);
+      border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700;
+      color: transparent;
+      cursor: pointer;
+      transition: all 120ms var(--ease);
+      margin-top: 1px;
+      background: transparent;
+    }
+    .pulse-row:hover .pulse-row-check {
+      border-color: var(--accent-from);
+    }
+    .pulse-row-check.checked {
+      background: linear-gradient(135deg, #22c55e, #16a34a);
+      border-color: #16a34a;
+      color: white;
     }
     .bank-card-ctx.work { background: var(--work); }
     .bank-card-ctx.personal { background: var(--personal); }
@@ -1205,9 +1230,27 @@
       grid-template-columns: 70px 1fr;
       border-top: 1px solid var(--border);
       min-height: 44px;
+      transition: min-height 180ms var(--ease);
     }
     .schedule-row:first-child { border-top: 0; }
     .schedule-row.now { background: rgba(96, 165, 250, 0.06); }
+    /* Empty hour rows compact to half height to stop the schedule from dominating the viewport */
+    .schedule-row:not(:has(.schedule-card)):not(.now) {
+      min-height: 22px;
+    }
+    .schedule-row:not(:has(.schedule-card)):not(.now) .schedule-slot {
+      min-height: 22px;
+    }
+    .schedule-row:not(:has(.schedule-card)):not(.now) .schedule-hour {
+      font-size: 9px;
+      padding: 4px 10px;
+      opacity: 0.45;
+    }
+    .schedule-row:not(:has(.schedule-card)):not(.now):hover {
+      min-height: 36px;
+    }
+    .schedule-row:not(:has(.schedule-card)):not(.now):hover .schedule-slot { min-height: 36px; }
+    .schedule-row:not(:has(.schedule-card)):not(.now):hover .schedule-hour { opacity: 0.85; font-size: 11px; }
     .schedule-hour {
       font-family: 'JetBrains Mono', monospace;
       font-size: 11px;
@@ -1342,8 +1385,316 @@
       font-size: 12px; font-style: italic; text-align: center;
     }
 
+    /* ---------- Just Did block ---------- */
+    .just-did-wrap { display: flex; flex-direction: column; gap: 8px; }
+    .just-did-input-wrap { position: relative; display: flex; flex-direction: column; gap: 6px; }
+    .just-did-input {
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text-primary);
+      font-size: 14px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 120ms var(--ease), box-shadow 120ms var(--ease);
+    }
+    .just-did-input::placeholder { color: var(--text-tertiary); }
+    .just-did-input:focus {
+      border-color: var(--accent-from);
+      box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.15);
+    }
+    .just-did-matches:empty { display: none; }
+    .just-did-matches { display: flex; flex-direction: column; gap: 2px; }
+    .just-did-match {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 12px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      color: var(--text-secondary);
+      transition: all 120ms var(--ease);
+    }
+    .just-did-match.active, .just-did-match:hover {
+      background: var(--card-hover);
+      border-color: var(--border-strong);
+      color: var(--text-primary);
+    }
+    .just-did-match.new { color: var(--text-secondary); }
+    .just-did-match.new:hover, .just-did-match.new.active {
+      color: var(--text-primary);
+      border-color: var(--accent-from);
+    }
+    .just-did-match-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .just-did-match-proj {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--text-tertiary);
+      padding: 1px 6px;
+      background: var(--overlay);
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+    .just-did-match-new-icon {
+      width: 18px; height: 18px;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: linear-gradient(135deg, var(--accent-from), var(--accent-to));
+      color: white;
+      border-radius: 4px;
+      font-size: 13px; font-weight: 700;
+      flex-shrink: 0;
+    }
+    .just-did-wins {
+      display: flex; flex-direction: column; gap: 4px;
+      margin-top: 6px;
+    }
+    .just-did-win {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 10px;
+      background: rgba(34, 197, 94, 0.06);
+      border: 1px solid rgba(34, 197, 94, 0.18);
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 120ms var(--ease);
+    }
+    .just-did-win:hover { background: rgba(34, 197, 94, 0.12); }
+    .just-did-win-check {
+      width: 16px; height: 16px;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: linear-gradient(135deg, #22c55e, #16a34a);
+      color: white;
+      border-radius: 50%;
+      font-size: 10px; font-weight: 700;
+      flex-shrink: 0;
+    }
+    .just-did-win-title {
+      flex: 1; min-width: 0;
+      color: var(--text-primary);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .just-did-win-proj {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--text-tertiary);
+      padding: 1px 5px;
+      background: var(--overlay);
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+    .just-did-win-time {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--text-tertiary);
+      flex-shrink: 0;
+    }
+    .just-did-win-undo {
+      width: 20px; height: 20px;
+      display: inline-flex; align-items: center; justify-content: center;
+      border: 0; background: transparent;
+      color: var(--text-tertiary);
+      cursor: pointer;
+      border-radius: 4px;
+      font-size: 14px; font-weight: 700;
+      flex-shrink: 0;
+    }
+    .just-did-win-undo:hover { background: var(--overlay); color: var(--text-primary); }
+
+    /* ---------- Books view ---------- */
+    .books-list { display: flex; flex-direction: column; gap: 14px; max-width: 880px; margin: 0 auto; padding-bottom: 20px; }
+    .book-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px 18px;
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    .book-card-head { display: flex; align-items: flex-start; gap: 12px; }
+    .book-card-info { flex: 1; min-width: 0; }
+    .book-card-title { font-size: 16px; font-weight: 600; color: var(--text-primary); }
+    .book-card-author { font-size: 12px; color: var(--text-tertiary); margin-top: 2px; font-style: italic; }
+    .book-card-meta { display: flex; align-items: center; gap: 8px; }
+    .book-card-count {
+      font-family: 'JetBrains Mono', monospace; font-size: 11px;
+      color: var(--text-tertiary);
+      padding: 2px 8px; border-radius: 4px; background: var(--overlay);
+    }
+    .book-quote-add {
+      display: flex; gap: 6px;
+      padding: 10px;
+      background: var(--surface-sub);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .book-quote-input {
+      flex: 1;
+      padding: 6px 10px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-primary);
+      font-size: 13px;
+      font-family: inherit;
+    }
+    .book-quote-input:focus { border-color: var(--accent-from); outline: none; }
+    .book-page-input {
+      width: 56px;
+      padding: 6px 8px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-primary);
+      font-size: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      text-align: center;
+    }
+    .book-page-input:focus { border-color: var(--accent-from); outline: none; }
+    .book-quotes { display: flex; flex-direction: column; gap: 8px; }
+    .book-quotes-empty {
+      padding: 14px; text-align: center;
+      color: var(--text-tertiary); font-size: 12px; font-style: italic;
+    }
+    .book-quote-row {
+      display: flex; gap: 10px;
+      padding: 10px 12px;
+      background: var(--surface-sub);
+      border-left: 3px solid var(--accent-from);
+      border-radius: 6px;
+    }
+    .book-quote-mark {
+      font-family: Georgia, serif;
+      font-size: 28px;
+      line-height: 1;
+      color: var(--accent-from);
+      opacity: 0.6;
+      flex-shrink: 0;
+    }
+    .book-quote-body { flex: 1; min-width: 0; }
+    .book-quote-text {
+      font-size: 14px;
+      color: var(--text-primary);
+      line-height: 1.5;
+      font-style: italic;
+    }
+    .book-quote-page {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--text-tertiary);
+      margin-top: 4px;
+    }
+    .book-quote-del {
+      width: 22px; height: 22px;
+      background: transparent;
+      border: 0;
+      color: var(--text-tertiary);
+      cursor: pointer;
+      border-radius: 4px;
+      font-size: 16px; font-weight: 700;
+      flex-shrink: 0;
+    }
+    .book-quote-del:hover { background: var(--overlay); color: var(--danger); }
+
+    /* ---------- Quote of the day on Today ---------- */
+    .today-quote {
+      display: flex; gap: 10px;
+      padding: 12px 14px;
+      background: var(--surface-sub);
+      border-left: 3px solid var(--accent-from);
+      border-radius: 8px;
+      align-items: flex-start;
+    }
+    .today-quote-mark {
+      font-family: Georgia, serif;
+      font-size: 26px;
+      line-height: 0.9;
+      color: var(--accent-from);
+      opacity: 0.6;
+      flex-shrink: 0;
+    }
+    .today-quote-body { flex: 1; min-width: 0; }
+    .today-quote-text {
+      font-size: 13px;
+      color: var(--text-primary);
+      font-style: italic;
+      line-height: 1.45;
+    }
+    .today-quote-attr {
+      margin-top: 4px;
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-tertiary);
+    }
+
     /* ---------- Today plan ---------- */
+    /* Single-day-other-than-today (Plan tomorrow) keeps the narrow centered layout */
     .plan-wrap { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+    /* Today command-center: 2-column at desktop, stacked on mobile */
+    .today-cmd {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 18px;
+      width: 100%;
+      max-width: 1700px;
+      margin: 0 auto;
+    }
+    @media (min-width: 1100px) {
+      .today-cmd { grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 20px; }
+    }
+    @media (min-width: 1500px) {
+      .today-cmd { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; }
+    }
+    .today-col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+    .today-panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-panel);
+      padding: 16px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-width: 0;
+    }
+    .today-panel.flush { padding: 0; }
+    .today-panel.flush > .today-panel-head { padding: 14px 16px 8px; }
+    .today-panel-head {
+      display: flex; align-items: center; gap: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--text-tertiary);
+    }
+    .today-panel-head .count {
+      padding: 1px 6px; border-radius: 4px;
+      background: var(--overlay);
+      font-size: 10px;
+      color: var(--text-secondary);
+    }
+    .today-panel-head .spacer { flex: 1; }
+    /* Pulse panels in main column: card chrome instead of rail padding */
+    .today-cmd .pulse-panel {
+      padding: 14px 16px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-panel);
+    }
+    /* Pulse strip — at-a-glance row above schedule. Stacks on narrow viewports,
+       becomes a 3-column grid on desktop so all three panels fit above the fold. */
+    .today-pulse-strip {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 10px;
+    }
+    @media (min-width: 1100px) {
+      .today-pulse-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+    .today-pulse-strip .pulse-panel + .pulse-panel {
+      border-top: 0; margin-top: 0; padding-top: 14px;
+    }
+    /* Reset the cascade for nested pulse panels in main */
+    .today-cmd .pulse-panel + .pulse-panel { border-top: 0; margin-top: 0; padding-top: 14px; }
     .plan-section-title {
       display: flex; align-items: center; gap: 10px;
       font-size: 13px; font-weight: 600;
@@ -1360,6 +1711,48 @@
     .plan-section-title .spacer { flex: 1; }
 
     .top3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .top3.collapsed {
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      margin-top: 8px;
+      opacity: 0;
+      max-height: 0;
+      overflow: hidden;
+      pointer-events: auto;
+    }
+    .top3.collapsed .top3-slot { min-height: 1px; padding: 0; border: 0; visibility: hidden; }
+    .top3-empty-cta {
+      display: flex; align-items: center; gap: 12px;
+      width: 100%;
+      padding: 14px 18px;
+      background: linear-gradient(135deg, rgba(124, 58, 237, 0.08), rgba(236, 72, 153, 0.08));
+      border: 1px dashed var(--border-strong);
+      border-radius: 12px;
+      color: var(--text-primary);
+      font-size: 14px;
+      cursor: pointer;
+      text-align: left;
+      transition: all 180ms var(--ease);
+      font-family: inherit;
+    }
+    .top3-empty-cta:hover {
+      background: linear-gradient(135deg, rgba(124, 58, 237, 0.14), rgba(236, 72, 153, 0.14));
+      border-color: var(--accent-from);
+      transform: translateY(-1px);
+    }
+    .top3-empty-cta-icon {
+      font-size: 22px;
+      background: linear-gradient(135deg, var(--accent-from), var(--accent-to));
+      -webkit-background-clip: text; background-clip: text;
+      color: transparent;
+      line-height: 1;
+    }
+    .top3-empty-cta-text { flex: 1; font-weight: 500; }
+    .top3-empty-cta-hint {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--text-tertiary);
+    }
     .top3-slot {
       background: var(--surface-sub);
       border: 1px dashed var(--border);
@@ -1734,7 +2127,7 @@
       border-radius: 14px;
       overflow: hidden;
     }
-    html[data-theme="personal"] .project-table { background: rgba(249, 244, 234, 0.55); }
+    html[data-theme="personal"] .project-table { background: rgba(250, 251, 253, 0.7); }
     html[data-theme="work-light"] .project-table { background: rgba(255, 252, 246, 0.7); }
     .project-table thead th {
       text-align: left;
@@ -1929,7 +2322,8 @@
 
     /* ---------- Right rail ---------- */
     #right-rail { padding: 18px 0; }
-    .rail-panel { padding: 0 18px; flex: 1; overflow: auto; min-height: 0; }
+    .rail-panel { padding: 0 18px; flex: 0 0 auto; overflow: visible; min-height: 0; }
+    #right-rail { overflow-y: auto; }
     .rail-panel + .rail-panel { border-top: 1px solid var(--border); padding-top: 14px; margin-top: 14px; }
     .rail-panel-head { display: flex; align-items: center; margin-bottom: 10px; }
     .rail-panel-title {
@@ -1937,6 +2331,110 @@
       color: var(--text-tertiary); font-family: 'JetBrains Mono', monospace; flex: 1;
     }
     .rail-panel-head .icon-btn { width: 22px; height: 22px; font-size: 12px; }
+
+    /* ---------- Today view: Pulse panels ---------- */
+    .pulse-panel { flex: 0 0 auto; max-height: none; }
+    .pulse-list { display: flex; flex-direction: column; gap: 6px; }
+    .pulse-empty {
+      padding: 10px 4px; font-size: 12px; font-style: italic;
+      color: var(--text-tertiary);
+    }
+    .pulse-section-label {
+      font-size: 10px; font-family: 'JetBrains Mono', monospace;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--text-tertiary);
+      margin-top: 10px; margin-bottom: 4px;
+    }
+    .pulse-more {
+      font-size: 10px; color: var(--text-tertiary);
+      padding: 4px 8px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .pulse-row {
+      display: flex; gap: 8px;
+      padding: 8px 10px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 120ms var(--ease), border-color 120ms var(--ease), transform 120ms var(--ease);
+    }
+    .pulse-row:hover {
+      background: var(--card-hover);
+      border-color: var(--border-strong);
+      transform: translateY(-1px);
+    }
+    .pulse-row-accent {
+      width: 3px; align-self: stretch;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+    .pulse-row-body {
+      flex: 1; min-width: 0;
+      display: flex; flex-direction: column; gap: 5px;
+    }
+    .pulse-row-title {
+      font-size: 12px; font-weight: 500;
+      color: var(--text-primary);
+      line-height: 1.25;
+      overflow: hidden;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .pulse-row-title-text {
+      flex: 1; min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .pulse-row .pulse-row-title:not(:has(.pulse-row-title-text)) {
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      display: block;
+    }
+    .pulse-row-meta {
+      display: flex; align-items: center; gap: 6px;
+      flex-wrap: wrap;
+      font-size: 10px;
+      color: var(--text-tertiary);
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .pulse-pill {
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: var(--overlay);
+      color: var(--text-secondary);
+      font-size: 10px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.04em;
+      line-height: 1.4;
+    }
+    .pulse-pill.active { background: rgba(34, 197, 94, 0.14); color: #4ade80; }
+    .pulse-pill.stalled { background: rgba(234, 179, 8, 0.14); color: #facc15; }
+    .pulse-pill.dormant { background: rgba(148, 163, 184, 0.14); color: #94a3b8; }
+    .pulse-pill.empty { background: var(--overlay); color: var(--text-tertiary); }
+    .pulse-pill.late { background: rgba(239, 68, 68, 0.16); color: #f87171; }
+    .pulse-bar {
+      height: 4px;
+      background: var(--overlay);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .pulse-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent-from), var(--accent-to));
+      transition: width 220ms var(--ease);
+      min-width: 2px;
+    }
+    .pulse-bar-fill.done {
+      background: linear-gradient(90deg, #22c55e, #16a34a);
+    }
+    .pulse-streak {
+      font-size: 10px;
+      color: var(--text-tertiary);
+      font-family: 'JetBrains Mono', monospace;
+      flex-shrink: 0;
+    }
+    /* Personal/light theme adjustments */
+    html[data-theme="personal"] .pulse-pill.active { background: rgba(22, 163, 74, 0.14); color: #15803d; }
+    html[data-theme="personal"] .pulse-pill.stalled { background: rgba(202, 138, 4, 0.14); color: #a16207; }
+    html[data-theme="personal"] .pulse-pill.dormant { background: rgba(100, 116, 139, 0.14); color: #475569; }
+    html[data-theme="personal"] .pulse-pill.late { background: rgba(220, 38, 38, 0.14); color: #b91c1c; }
 
     .team-chips { display: flex; flex-wrap: wrap; gap: 6px; }
     .team-chip {
@@ -2685,6 +3183,8 @@
       activity: "No activity logged. Start doing things.",
       doneEmpty: "Nothing archived yet. Get to work.",
       goalsEmpty: "No goals yet. Just vibes, apparently.",
+      booksEmpty: "No books yet. Add one and start collecting quotes.",
+      quotesEmpty: "No quotes from this book yet. The page is patient.",
     };
 
     const ACTIVITY_ICONS = {
@@ -2760,6 +3260,8 @@
           { id: uid('goal'), title: 'Move every day', target: '20+ minutes', cadence: 'daily', target_count: 1, unit: '', context: 'personal', checkins: [], created_at: now() },
           { id: uid('goal'), title: 'Strength workouts', target: '3x / week', cadence: 'weekly', target_count: 3, unit: '', context: 'personal', checkins: [], created_at: now() },
         ],
+        books: [],
+        quotes: [],
         ui: {
           active_view: projId, theme: 'dark', context_filter: 'all',
           banner_dismissed: {}, collapsed_sections: {}, calendar_sources: [],
@@ -2947,6 +3449,16 @@
       s.activity_log = s.activity_log || [];
       s.notes = s.notes || [];
       s.files = s.files || [];
+      // Books + quotes — wisdom you've collected, surfaced as a daily quote
+      s.books = (s.books || []).map(b => ({
+        id: b.id, title: b.title || '(untitled)', author: b.author || '',
+        created_at: b.created_at || now(),
+      }));
+      s.quotes = (s.quotes || []).map(q => ({
+        id: q.id, book_id: q.book_id || null,
+        text: q.text || '', page: q.page || '',
+        created_at: q.created_at || now(),
+      }));
       s.goals = (s.goals || []).map(g => ({
         id: g.id, title: g.title,
         target: g.target || '', cadence: g.cadence || 'weekly',
@@ -3124,7 +3636,19 @@
     }
     function bankCards() {
       return state.cards
-        .filter(c => c.project_id === 'inbox' && !c.archived && !c.scheduled_time)
+        .filter(c => !c.archived && !c.done_at && !c.scheduled_time)
+        .sort((a, b) => {
+          const aDue = resolveDueISO(a.due);
+          const bDue = resolveDueISO(b.due);
+          if (aDue && bDue) return aDue.localeCompare(bDue);
+          if (aDue) return -1;
+          if (bDue) return 1;
+          return (b.created_at || '').localeCompare(a.created_at || '');
+        });
+    }
+    function unassignedBankCards() {
+      return state.cards
+        .filter(c => c.project_id === 'inbox' && !c.archived && !c.done_at && !c.scheduled_time)
         .sort((a, b) => a.position - b.position);
     }
     function visibleBankCards() {
@@ -3728,6 +4252,8 @@
         if (!c) return;
         if (c.done_at) {
           c.done_at = null; c.archived = false;
+          // Clear auto-stamped completion time so the card returns to bank/columns cleanly.
+          if (c._auto_scheduled) { c.scheduled_time = null; c._auto_scheduled = false; }
         } else {
           c.done_at = now();
           becameDone = true;
@@ -3748,6 +4274,7 @@
               const hh = String(n.getHours()).padStart(2, '0');
               const mm = String(Math.floor(n.getMinutes() / 15) * 15).padStart(2, '0');
               c.scheduled_time = todayISO() + 'T' + hh + ':' + mm + ':00';
+              c._auto_scheduled = true;
               if (!c.duration_minutes) c.duration_minutes = 30;
             }
           }
@@ -4049,6 +4576,7 @@
         el('div', { class: 'nav-sep' }),
         mkTab('ideas', 'Ideas', '💡', { secondary: true, count: visibleIdeas().length }),
         mkTab('goals', 'Goals', '🎯', { secondary: true, count: visibleGoals().length }),
+        mkTab('books', 'Books', '📚', { secondary: true, count: (state.books || []).length }),
         mkTab('activity', 'Activity', '📋', { secondary: true, count: visibleActivity().length }),
         mkTab('done', 'Done', '✓', { secondary: true, count: visibleArchivedCards().length }),
       ]);
@@ -4205,6 +4733,15 @@
     function renderLeftRail() {
       const rail = document.getElementById('left-rail');
       clearNode(rail);
+
+      // On Today the Bank lives inline in the main 2-column command center, so the
+      // left-rail drawer becomes a "go to Today" hint to avoid showing the bank twice.
+      if (state.ui.active_view === 'today') {
+        rail.appendChild(el('div', {
+          style: { padding: '24px 16px', color: 'var(--text-tertiary)', fontSize: '12px', fontStyle: 'italic', textAlign: 'center' },
+        }, 'Tasks are inline on Today. Close this drawer to see them.'));
+        return;
+      }
 
       if (!state.ui.layout || !state.ui.layout.task_bank_on_right) {
         rail.appendChild(bankSectionEl());
@@ -4492,14 +5029,43 @@
     }
     function bankCardEl(c) {
       const node = el('div', {
-        class: 'bank-card',
+        class: 'bank-card' + (c.done_at ? ' done' : ''),
         dataset: { cardId: c.id },
         onClick: () => openCardEditModal(c.id),
-      }, [el('div', { class: 'bank-card-title' }, c.title)]);
+      }, [
+        el('div', {
+          class: 'bank-card-check' + (c.done_at ? ' checked' : ''),
+          title: c.done_at ? 'Completed — click to undo' : 'Mark done',
+          onClick: (e) => { e.stopPropagation(); toggleCardDone(c.id); },
+        }, c.done_at ? '✓' : ''),
+        el('div', { class: 'bank-card-body' }, [
+          el('div', { class: 'bank-card-title' }, c.title),
+        ]),
+      ]);
       if (c.context) node.appendChild(el('span', { class: 'bank-card-ctx ' + c.context }));
+      const body = node.querySelector('.bank-card-body');
       const dueLabel = formatDueLabel(c.due);
       const dueISO = resolveDueISO(c.due);
       const pills = [];
+      // Project chip — show for cards belonging to a real project (not the inbox holding area)
+      if (c.project_id && c.project_id !== 'inbox') {
+        const proj = projectById(c.project_id);
+        if (proj) {
+          const accent = proj.accent || { from: '#a855f7', to: '#ec4899' };
+          pills.push(el('span', {
+            class: 'project-chip',
+            title: 'In project: ' + proj.name,
+            style: {
+              background: 'linear-gradient(135deg, ' + accent.from + '22, ' + accent.to + '22)',
+              borderColor: accent.from + '55',
+            },
+          }, [
+            el('span', { class: 'project-chip-dot', style: {
+              background: 'linear-gradient(135deg, ' + accent.from + ', ' + accent.to + ')' } }),
+            el('span', {}, proj.name),
+          ]));
+        }
+      }
       if (dueLabel) {
         let cls = 'due-pill';
         const today = todayISO();
@@ -4524,7 +5090,7 @@
       if (c.missed_count) {
         pills.push(el('span', { class: 'due-pill overdue', title: 'Last missed ' + (c.last_missed_at || '') }, 'Missed × ' + c.missed_count));
       }
-      if (pills.length) node.appendChild(el('div', { class: 'bank-card-meta' }, pills));
+      if (pills.length) body.appendChild(el('div', { class: 'bank-card-meta' }, pills));
       return node;
     }
 
@@ -4792,6 +5358,7 @@
       if (view === 'ideas') { renderIdeasView(header, body); return; }
       if (view === 'automations') { state.ui.active_view = 'ideas'; render(); return; }
       if (view === 'goals') { renderGoalsView(header, body); return; }
+      if (view === 'books') { renderBooksView(header, body); return; }
       if (view === 'activity') { renderActivityView(header, body); return; }
       if (view === 'done') { renderDoneView(header, body); return; }
       if (view === 'projects') { renderProjectsHub(header, body); return; }
@@ -4880,25 +5447,33 @@
         el('button', { class: 'text-btn', onClick: () => { if (confirm('Clear the plan for ' + label + '?')) clearDayPlan(); } }, 'Clear'),
       ]));
 
-      const wrap = el('div', { class: 'plan-wrap' });
-
-      // Top 3
+      // Top 3 — collapse to single CTA when none picked, else show standard 3-slot grid
       const priorities = planCards('priority');
-      const top3 = el('div', { class: 'top3' });
-      for (let i = 0; i < 3; i++) {
-        const c = priorities[i];
-        top3.appendChild(top3SlotEl(c, i));
-      }
-      wrap.appendChild(el('div', {}, [
-        el('div', { class: 'plan-section-title' }, [
-          el('span', {}, 'Top 3'),
-          el('span', { class: 'count' }, priorities.length + ' / 3'),
-          el('div', { class: 'spacer' }),
-          el('button', { class: 'text-btn', onClick: () => openCardPickerModal('priority') }, '+ Pick'),
-        ]),
-        top3,
+      const top3Block = el('div', {});
+      top3Block.appendChild(el('div', { class: 'plan-section-title' }, [
+        el('span', {}, 'Top 3'),
+        el('span', { class: 'count' }, priorities.length + ' / 3'),
+        el('div', { class: 'spacer' }),
+        el('button', { class: 'text-btn', onClick: () => openCardPickerModal('priority') }, '+ Pick'),
       ]));
-
+      if (priorities.length === 0) {
+        top3Block.appendChild(el('button', {
+          class: 'top3-empty-cta',
+          onClick: () => openCardPickerModal('priority'),
+        }, [
+          el('span', { class: 'top3-empty-cta-icon' }, '◎'),
+          el('span', { class: 'top3-empty-cta-text' }, 'Pick three priorities for today.'),
+          el('span', { class: 'top3-empty-cta-hint' }, 'Or drag a card here.'),
+        ]));
+        // Hidden drop-target slots so existing drag-to-top3 still works
+        const top3 = el('div', { class: 'top3 collapsed' });
+        for (let i = 0; i < 3; i++) top3.appendChild(top3SlotEl(priorities[i], i));
+        top3Block.appendChild(top3);
+      } else {
+        const top3 = el('div', { class: 'top3' });
+        for (let i = 0; i < 3; i++) top3.appendChild(top3SlotEl(priorities[i], i));
+        top3Block.appendChild(top3);
+      }
       // Hourly schedule (5 AM - midnight)
       const schedule = el('div', { class: 'schedule' });
       const scheduled = scheduledOnDate(currentPlanDate);
@@ -4912,7 +5487,6 @@
           class: 'schedule-slot',
           dataset: { scheduleHour: String(h) },
           onClick: (e) => {
-            // Click on empty slot area → create new task at that hour (+ minute from click Y)
             if (e.target.closest('.schedule-card')) return;
             const rect = e.currentTarget.getBoundingClientRect();
             const rel = e.clientY - rect.top;
@@ -4927,7 +5501,7 @@
         row.appendChild(slot);
         schedule.appendChild(row);
       }
-      wrap.appendChild(el('div', {}, [
+      const scheduleSection = el('div', {}, [
         el('div', { class: 'plan-section-title' }, [
           el('span', {}, 'Schedule'),
           el('span', { class: 'count' }, scheduled.length + ' scheduled'),
@@ -4942,20 +5516,77 @@
           }, 'Unschedule all'),
         ]),
         schedule,
-      ]));
+      ]);
 
-      // Hook up Sortable for cross-hour and pool drag.
-      // Accept drops from Task Bank + project columns (group 'cards') too.
+      // Unscheduled pool: cards for this date that don't have a scheduled_time yet
+      const due = state.cards.filter(c => {
+        if (c.archived) return false;
+        if (c.scheduled_time) return false;
+        if (!contextMatches(contextOf(c, 'card'))) return false;
+        if (!c.due) return false;
+        if (cardDueOnDate(c, currentPlanDate)) return true;
+        return false;
+      });
+      const pool = el('div', { class: 'unscheduled-pool' });
+      due.forEach(c => pool.appendChild(scheduleCardEl(c)));
+      const poolEmpty = el('div', { class: 'unscheduled-empty', style: { display: due.length === 0 ? 'block' : 'none' } }, 'Nothing unscheduled. Drag a card here to unschedule it.');
+      const unscheduledSection = el('div', {}, [
+        el('div', { class: 'plan-section-title' }, [
+          el('span', {}, 'Unscheduled'),
+          el('span', { class: 'count' }, String(due.length)),
+          el('div', { class: 'spacer' }),
+          el('span', { style: { fontSize: '10px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace' } }, 'drag into an hour above'),
+        ]),
+        pool,
+        poolEmpty,
+      ]);
+
+      // Compose layout — Today is the full-screen command center; other dates use the narrow plan layout
+      if (isToday) {
+        const cmd = el('div', { class: 'today-cmd' });
+        const leftCol = el('div', { class: 'today-col today-col-left' });
+        const rightCol = el('div', { class: 'today-col today-col-right' });
+
+        leftCol.appendChild(top3Block);
+        leftCol.appendChild(renderJustDidBlock());
+        leftCol.appendChild(renderTodayBankPanel());
+        // Quote of the day — stable per-day rotation from the Books library
+        const dailyQuote = pickDailyQuote();
+        if (dailyQuote) {
+          leftCol.appendChild(renderTodayQuote(dailyQuote));
+        }
+
+        // Right col leads with the at-a-glance Pulse strip (visible above the fold),
+        // then the schedule + unscheduled drawer (which can scroll below if needed).
+        const pulseStrip = el('div', { class: 'today-pulse-strip' });
+        pulseStrip.appendChild(renderProjectsPulsePanel());
+        pulseStrip.appendChild(renderNeedsAttentionPanel());
+        pulseStrip.appendChild(renderGoalsPulsePanel());
+        rightCol.appendChild(pulseStrip);
+        rightCol.appendChild(scheduleSection);
+        rightCol.appendChild(unscheduledSection);
+
+        cmd.appendChild(leftCol);
+        cmd.appendChild(rightCol);
+        body.appendChild(cmd);
+      } else {
+        const wrap = el('div', { class: 'plan-wrap' });
+        wrap.appendChild(top3Block);
+        wrap.appendChild(scheduleSection);
+        wrap.appendChild(unscheduledSection);
+        body.appendChild(wrap);
+      }
+
+      // Wire Sortable for schedule slots, unscheduled pool, top3 slots, and (on Today) the inline bank.
+      // Scoped to body so both the 2-col and narrow layouts are covered.
       setTimeout(() => {
-        const slots = wrap.querySelectorAll('.schedule-slot, .unscheduled-pool');
-        slots.forEach(s => {
+        body.querySelectorAll('.schedule-slot, .unscheduled-pool').forEach(s => {
           Sortable.create(s, {
             group: { name: 'schedule', pull: true, put: ['schedule', 'cards'] },
             animation: 160,
             easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
             delay: 120, delayOnTouchOnly: true, touchStartThreshold: 5, fallbackOnBody: true,
             onStart: () => document.body.classList.add('sched-dragging'),
-            // onAdd fires when a card arrives from ANOTHER list (bank, project column, pool)
             onAdd: (evt) => {
               const cardId = evt.item.dataset.cardId;
               if (!cardId) return;
@@ -4966,11 +5597,9 @@
                 if (!isNaN(h)) scheduleCardAt(cardId, currentPlanDate, h);
               }
             },
-            // onEnd handles reorders within schedule (card moved between hour slots)
             onEnd: (evt) => {
               document.body.classList.remove('sched-dragging');
-              if (evt.from === evt.to) return; // same-list reorder, ignore
-              // Cross-list moves WITHIN the schedule group (slot ↔ pool, slot ↔ slot)
+              if (evt.from === evt.to) return;
               if (!evt.from.classList.contains('schedule-slot') && !evt.from.classList.contains('unscheduled-pool')) return;
               const cardId = evt.item.dataset.cardId;
               if (!cardId) return;
@@ -4983,8 +5612,7 @@
             },
           });
         });
-        // Top 3 slots accept drops from bank / project columns / schedule
-        wrap.querySelectorAll('.top3-slot').forEach((slotEl, i) => {
+        body.querySelectorAll('.top3-slot').forEach((slotEl, i) => {
           Sortable.create(slotEl, {
             group: { name: 'top3', pull: false, put: ['cards', 'schedule'] },
             animation: 160,
@@ -4997,33 +5625,71 @@
             },
           });
         });
+        // Inline bank list (on Today only) — drag out to project columns / schedule / top3
+        body.querySelectorAll('.today-bank-list').forEach(list => {
+          Sortable.create(list, {
+            group: { name: 'cards', pull: true, put: true },
+            animation: 180,
+            easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+            ghostClass: 'sortable-ghost',
+            chosenClass: 'sortable-chosen',
+            dragClass: 'sortable-drag',
+            delay: 120, delayOnTouchOnly: true, touchStartThreshold: 5, fallbackOnBody: true,
+            onEnd: handleCardDrop,
+          });
+        });
       }, 0);
+    }
 
-      // Unscheduled pool: cards for this date that don't have a scheduled_time yet
-      const due = state.cards.filter(c => {
-        if (c.archived) return false;
-        if (c.scheduled_time) return false;
-        if (!contextMatches(contextOf(c, 'card'))) return false;
-        if (!c.due) return false;
-        if (cardDueOnDate(c, currentPlanDate)) return true;
-        return false;
-      });
-      // Unscheduled pool
-      const pool = el('div', { class: 'unscheduled-pool' });
-      due.forEach(c => pool.appendChild(scheduleCardEl(c)));
-      const poolEmpty = el('div', { class: 'unscheduled-empty', style: { display: due.length === 0 ? 'block' : 'none' } }, 'Nothing unscheduled. Drag a card here to unschedule it.');
-      wrap.appendChild(el('div', {}, [
-        el('div', { class: 'plan-section-title' }, [
-          el('span', {}, 'Unscheduled'),
-          el('span', { class: 'count' }, String(due.length)),
-          el('div', { class: 'spacer' }),
-          el('span', { style: { fontSize: '10px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace' } }, 'drag into an hour above'),
-        ]),
-        pool,
-        poolEmpty,
+    // ---------- Today: inline Bank panel (replaces the left-rail bank for Today view) ----------
+    function renderTodayBankPanel() {
+      const cards = visibleBankCards();
+      const panel = el('div', { class: 'today-panel today-bank-panel' });
+      panel.appendChild(el('div', { class: 'today-panel-head' }, [
+        el('span', {}, 'Tasks'),
+        el('span', { class: 'count' }, String(cards.length)),
+        el('div', { class: 'spacer' }),
+        el('button', {
+          class: 'text-btn',
+          title: 'Add a new task to the bank',
+          onClick: () => openNewBankCardModal(),
+        }, '+ Add'),
+        el('button', {
+          class: 'text-btn',
+          title: 'Paste an email — Claude extracts tasks',
+          onClick: () => openEmailAnalyzeModal(),
+        }, '📧 From email'),
       ]));
+      const list = el('div', { class: 'bank-list today-bank-list', dataset: { dropKind: 'bank' } });
+      if (cards.length === 0) {
+        list.appendChild(el('div', { class: 'bank-empty' }, EMPTY_COPY.bank));
+      } else {
+        cards.forEach(c => list.appendChild(bankCardEl(c)));
+      }
+      panel.appendChild(list);
+      return panel;
+    }
 
-      body.appendChild(wrap);
+    // Quote of the day — small block on Today, click jumps to Books view
+    function renderTodayQuote({ quote, book }) {
+      const attrParts = [];
+      if (book) {
+        if (book.author) attrParts.push(book.author);
+        if (book.title) attrParts.push(book.title);
+      }
+      const attr = attrParts.length ? '— ' + attrParts.join(', ') : '';
+      return el('div', {
+        class: 'today-quote',
+        title: 'Click to open Books',
+        style: { cursor: 'pointer' },
+        onClick: () => { setState(s => { s.ui.active_view = 'books'; }); },
+      }, [
+        el('div', { class: 'today-quote-mark' }, '"'),
+        el('div', { class: 'today-quote-body' }, [
+          el('div', { class: 'today-quote-text' }, quote.text),
+          attr ? el('div', { class: 'today-quote-attr' }, attr) : null,
+        ]),
+      ]);
     }
 
     function planDateToggleEl() {
@@ -6240,6 +6906,209 @@
       ]);
     }
 
+    // ---------- Books view ----------
+    function quotesForBook(bookId) {
+      return (state.quotes || [])
+        .filter(q => q.book_id === bookId)
+        .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+    }
+
+    function addBook(title, author) {
+      const t = (title || '').trim();
+      if (!t) return;
+      setState(s => {
+        s.books = s.books || [];
+        s.books.unshift({
+          id: uid('book'),
+          title: t,
+          author: (author || '').trim(),
+          created_at: now(),
+        });
+      });
+    }
+
+    function deleteBook(id) {
+      setState(s => {
+        s.books = (s.books || []).filter(b => b.id !== id);
+        s.quotes = (s.quotes || []).filter(q => q.book_id !== id);
+      });
+    }
+
+    function addQuote(bookId, text, page) {
+      const t = (text || '').trim();
+      if (!t) return;
+      setState(s => {
+        s.quotes = s.quotes || [];
+        s.quotes.unshift({
+          id: uid('quote'),
+          book_id: bookId,
+          text: t,
+          page: (page || '').trim(),
+          created_at: now(),
+        });
+      });
+    }
+
+    function deleteQuote(id) {
+      setState(s => { s.quotes = (s.quotes || []).filter(q => q.id !== id); });
+    }
+
+    function pickDailyQuote() {
+      const quotes = state.quotes || [];
+      if (quotes.length === 0) return null;
+      // Stable per-day rotation: same quote shows all day, rotates at midnight local
+      const today = todayISO();
+      const seed = today.split('-').reduce((a, n) => a * 31 + parseInt(n, 10), 7);
+      const idx = ((seed % quotes.length) + quotes.length) % quotes.length;
+      const q = quotes[idx];
+      const book = (state.books || []).find(b => b.id === q.book_id);
+      return { quote: q, book };
+    }
+
+    function renderBooksView(header, body) {
+      header.appendChild(el('div', { class: 'main-title' }, [
+        el('span', { style: { fontSize: '22px' } }, '📚'),
+        el('span', {}, 'Books'),
+      ]));
+      const books = state.books || [];
+      const totalQuotes = (state.quotes || []).length;
+      header.appendChild(el('div', { class: 'main-subtitle' },
+        books.length + ' book' + (books.length === 1 ? '' : 's') + ' · ' +
+        totalQuotes + ' quote' + (totalQuotes === 1 ? '' : 's')));
+      header.appendChild(el('div', { class: 'main-actions' }, [
+        el('button', { class: 'text-btn primary', onClick: () => openNewBookModal() }, '+ Add book'),
+      ]));
+
+      if (books.length === 0) {
+        body.appendChild(el('div', {
+          style: { padding: '60px 20px', textAlign: 'center', color: 'var(--text-tertiary)', fontStyle: 'italic' },
+        }, EMPTY_COPY.booksEmpty));
+        return;
+      }
+
+      const list = el('div', { class: 'books-list' });
+      books.forEach(b => list.appendChild(bookCardEl(b)));
+      body.appendChild(list);
+    }
+
+    function bookCardEl(b) {
+      const quotes = quotesForBook(b.id);
+      const node = el('div', { class: 'book-card' });
+      node.appendChild(el('div', { class: 'book-card-head' }, [
+        el('div', { class: 'book-card-info' }, [
+          el('div', { class: 'book-card-title' }, b.title),
+          b.author ? el('div', { class: 'book-card-author' }, b.author) : null,
+        ]),
+        el('div', { class: 'book-card-meta' }, [
+          el('span', { class: 'book-card-count' }, quotes.length + ' quote' + (quotes.length === 1 ? '' : 's')),
+          el('button', { class: 'text-btn', onClick: () => openEditBookModal(b) }, 'Edit'),
+          el('button', { class: 'text-btn danger', onClick: () => {
+            if (confirm('Delete "' + b.title + '" and all its quotes?')) deleteBook(b.id);
+          } }, 'Delete'),
+        ]),
+      ]));
+
+      // Quick add quote
+      const quoteInput = el('input', {
+        type: 'text',
+        class: 'book-quote-input',
+        placeholder: 'Add a quote from this book…',
+      });
+      const pageInput = el('input', {
+        type: 'text',
+        class: 'book-page-input',
+        placeholder: 'p.',
+      });
+      const addBtn = el('button', {
+        class: 'text-btn primary',
+        onClick: () => {
+          if (!quoteInput.value.trim()) { quoteInput.focus(); return; }
+          addQuote(b.id, quoteInput.value, pageInput.value);
+          quoteInput.value = ''; pageInput.value = '';
+        },
+      }, 'Add');
+      quoteInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') addBtn.click(); });
+      pageInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') addBtn.click(); });
+      node.appendChild(el('div', { class: 'book-quote-add' }, [quoteInput, pageInput, addBtn]));
+
+      // Quotes list
+      if (quotes.length === 0) {
+        node.appendChild(el('div', { class: 'book-quotes-empty' }, EMPTY_COPY.quotesEmpty));
+      } else {
+        const ul = el('div', { class: 'book-quotes' });
+        quotes.forEach(q => ul.appendChild(quoteRowEl(q)));
+        node.appendChild(ul);
+      }
+      return node;
+    }
+
+    function quoteRowEl(q) {
+      return el('div', { class: 'book-quote-row' }, [
+        el('div', { class: 'book-quote-mark' }, '"'),
+        el('div', { class: 'book-quote-body' }, [
+          el('div', { class: 'book-quote-text' }, q.text),
+          q.page ? el('div', { class: 'book-quote-page' }, 'p. ' + q.page) : null,
+        ]),
+        el('button', {
+          class: 'icon-btn book-quote-del',
+          title: 'Delete quote',
+          onClick: () => { if (confirm('Delete this quote?')) deleteQuote(q.id); },
+        }, '×'),
+      ]);
+    }
+
+    function openNewBookModal() {
+      let title = '', author = '';
+      const titleInput = el('input', { type: 'text', placeholder: 'e.g. Creating Magic', onInput: (e) => title = e.target.value });
+      const authorInput = el('input', { type: 'text', placeholder: 'e.g. Lee Cockerell', onInput: (e) => author = e.target.value });
+      const submit = () => {
+        if (!title.trim()) { titleInput.focus(); return; }
+        addBook(title, author);
+        closeModal();
+      };
+      titleInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); authorInput.focus(); } });
+      authorInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+      openModal([
+        el('h3', {}, 'New book'),
+        el('div', { class: 'modal-label' }, 'Title'),
+        titleInput,
+        el('div', { class: 'modal-label' }, 'Author'),
+        authorInput,
+        el('div', { class: 'modal-actions' }, [
+          el('button', { onClick: closeModal }, 'Cancel'),
+          el('button', { class: 'primary', onClick: submit }, 'Add'),
+        ]),
+      ]);
+      setTimeout(() => titleInput.focus(), 50);
+    }
+
+    function openEditBookModal(b) {
+      let title = b.title, author = b.author || '';
+      const titleInput = el('input', { type: 'text', value: title, onInput: (e) => title = e.target.value });
+      const authorInput = el('input', { type: 'text', value: author, onInput: (e) => author = e.target.value });
+      const submit = () => {
+        if (!title.trim()) { titleInput.focus(); return; }
+        setState(s => {
+          const bb = s.books.find(x => x.id === b.id);
+          if (bb) { bb.title = title.trim(); bb.author = author.trim(); }
+        });
+        closeModal();
+      };
+      authorInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+      openModal([
+        el('h3', {}, 'Edit book'),
+        el('div', { class: 'modal-label' }, 'Title'),
+        titleInput,
+        el('div', { class: 'modal-label' }, 'Author'),
+        authorInput,
+        el('div', { class: 'modal-actions' }, [
+          el('button', { onClick: closeModal }, 'Cancel'),
+          el('button', { class: 'primary', onClick: submit }, 'Save'),
+        ]),
+      ]);
+      setTimeout(() => titleInput.focus(), 50);
+    }
+
     // ---------- Activity view ----------
     function renderActivityView(header, body) {
       header.appendChild(el('div', { class: 'main-title' }, [
@@ -6963,7 +7832,11 @@
       const cardId = evt.item.dataset.cardId;
       const targetColumn = evt.to.closest('[data-column-id]');
       const inBank = evt.to.classList.contains('bank-list');
+      const fromBank = evt.from.classList.contains('bank-list');
       if (!cardId) return;
+      // Within-bank reorder is a no-op: bank is sorted by due/created, not by drag position.
+      // Re-render to revert any DOM reorder Sortable made.
+      if (inBank && fromBank) { render(); return; }
       setState(s => {
         const c = s.cards.find(x => x.id === cardId);
         if (!c) return;
@@ -7026,6 +7899,187 @@
       });
     }
 
+    // ---------- Just Did: log completions inline on Today ----------
+    function renderJustDidBlock() {
+      const today = todayISO();
+      const wins = state.cards.filter(c => {
+        if (!c.done_at) return false;
+        if (localDateOfISO(c.done_at) !== today) return false;
+        if (!contextMatches(contextOf(c, 'card'))) return false;
+        return true;
+      }).sort((a, b) => (b.done_at || '').localeCompare(a.done_at || ''));
+
+      const wrap = el('div', { class: 'just-did-wrap' });
+
+      wrap.appendChild(el('div', { class: 'plan-section-title' }, [
+        el('span', {}, 'Just Did'),
+        el('span', { class: 'count' }, wins.length + ' today'),
+      ]));
+
+      const matches = el('div', { class: 'just-did-matches' });
+      let highlighted = -1;
+      let currentMatches = [];
+
+      const input = el('input', {
+        type: 'text',
+        class: 'just-did-input',
+        placeholder: 'What did you do? Type to match a task or create one already done.',
+      });
+
+      function updateMatches(query) {
+        const q = (query || '').trim().toLowerCase();
+        if (q.length < 2) {
+          currentMatches = []; highlighted = -1;
+          renderMatches();
+          return;
+        }
+        currentMatches = state.cards.filter(c => {
+          if (c.archived || c.done_at) return false;
+          if (!contextMatches(contextOf(c, 'card'))) return false;
+          return (c.title || '').toLowerCase().includes(q);
+        }).slice(0, 5);
+        highlighted = currentMatches.length > 0 ? 0 : -1;
+        renderMatches();
+      }
+
+      function renderMatches() {
+        clearNode(matches);
+        currentMatches.forEach((c, i) => {
+          const proj = c.project_id !== 'inbox' ? projectById(c.project_id) : null;
+          matches.appendChild(el('div', {
+            class: 'just-did-match' + (i === highlighted ? ' active' : ''),
+            onClick: (e) => { e.preventDefault(); submit(input.value, c); },
+          }, [
+            el('span', { class: 'just-did-match-title' }, c.title),
+            proj ? el('span', { class: 'just-did-match-proj' }, proj.name) : null,
+          ]));
+        });
+        const q = input.value.trim();
+        if (q.length >= 2 && currentMatches.length === 0) {
+          matches.appendChild(el('div', {
+            class: 'just-did-match new',
+            onClick: (e) => { e.preventDefault(); submit(q, null); },
+          }, [
+            el('span', { class: 'just-did-match-new-icon' }, '+'),
+            el('span', {}, 'Create "' + q + '" — already done'),
+          ]));
+        }
+      }
+
+      function submit(text, matchedCard) {
+        text = (text || '').trim();
+        if (!text && !matchedCard) return;
+        if (matchedCard) {
+          toggleCardDone(matchedCard.id);
+        } else {
+          createDoneCard(text);
+        }
+      }
+
+      input.addEventListener('input', (e) => updateMatches(e.target.value));
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (highlighted >= 0 && currentMatches[highlighted]) {
+            submit(input.value, currentMatches[highlighted]);
+          } else {
+            submit(input.value, null);
+          }
+        } else if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          highlighted = Math.min(highlighted + 1, currentMatches.length - 1);
+          renderMatches();
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          highlighted = Math.max(highlighted - 1, -1);
+          renderMatches();
+        } else if (e.key === 'Escape') {
+          input.value = '';
+          currentMatches = []; highlighted = -1;
+          renderMatches();
+        }
+      });
+
+      wrap.appendChild(el('div', { class: 'just-did-input-wrap' }, [input, matches]));
+
+      if (wins.length > 0) {
+        const winsList = el('div', { class: 'just-did-wins' });
+        wins.forEach(c => winsList.appendChild(winRowEl(c)));
+        wrap.appendChild(winsList);
+      }
+
+      return wrap;
+    }
+
+    function winRowEl(c) {
+      const timeLabel = c.done_at
+        ? new Date(c.done_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+        : '';
+      const proj = c.project_id !== 'inbox' ? projectById(c.project_id) : null;
+      return el('div', {
+        class: 'just-did-win',
+        onClick: () => openCardEditModal(c.id),
+      }, [
+        el('span', { class: 'just-did-win-check' }, '✓'),
+        el('span', { class: 'just-did-win-title' }, c.title),
+        proj ? el('span', { class: 'just-did-win-proj' }, proj.name) : null,
+        timeLabel ? el('span', { class: 'just-did-win-time' }, timeLabel) : null,
+        el('button', {
+          class: 'just-did-win-undo',
+          title: 'Undo',
+          onClick: (e) => { e.stopPropagation(); toggleCardDone(c.id); },
+        }, '×'),
+      ]);
+    }
+
+    function createDoneCard(title) {
+      setState(s => {
+        // If currently on a project view, drop into its Done column (if it exists)
+        const activeProj = s.projects.find(p => p.id === s.ui.active_view);
+        let projectId = 'inbox';
+        let columnId = null;
+        if (activeProj && activeProj.columns && activeProj.columns.length) {
+          const doneCol = activeProj.columns.find(col => /done|complete|finished|shipped/i.test(col.name));
+          if (doneCol) {
+            projectId = activeProj.id;
+            columnId = doneCol.id;
+          }
+        }
+        const ctx = s.ui.context_filter !== 'all' ? s.ui.context_filter : (activeProj ? activeProj.context : null);
+        const card = {
+          id: uid('card'),
+          project_id: projectId,
+          column_id: columnId,
+          position: s.cards.filter(x => x.project_id === projectId && x.column_id === columnId).length,
+          title: title,
+          notes: '',
+          due: null,
+          today_slot: null, today_position: 0, plan_date: null,
+          context: ctx,
+          done_at: now(),
+          archived: projectId === 'inbox',
+          recurrence: null,
+          created_at: now(),
+          source: { kind: 'just-did' },
+        };
+        // If no Done column was found, also stamp scheduled_time so it shows on today's audit trail
+        if (projectId === 'inbox') {
+          const n = new Date();
+          const hh = String(n.getHours()).padStart(2, '0');
+          const mm = String(Math.floor(n.getMinutes() / 15) * 15).padStart(2, '0');
+          card.scheduled_time = todayISO() + 'T' + hh + ':' + mm + ':00';
+          card.duration_minutes = 15;
+          card._auto_scheduled = true;
+        }
+        s.cards.push(card);
+        logActivity('card_done', 'Logged "' + title + '"', {
+          project_id: projectId === 'inbox' ? null : projectId,
+          source_type: 'card', source_id: card.id, context: ctx,
+        });
+      });
+      setTimeout(soundDone, 0);
+    }
+
     // ---------- Right rail ----------
     function renderRightRail() {
       const rail = document.getElementById('right-rail');
@@ -7033,8 +8087,11 @@
       const view = state.ui.active_view;
       rail.style.display = '';
 
-      // Always: Today's list at the top, so tasks are one click away everywhere
-      rail.appendChild(renderMiniTodayList());
+      // On Today, all the rail content (mini-today list, pulse panels) lives in main.
+      // The right-rail drawer is reserved for project-scoped Notes/Files/Team.
+      if (view !== 'today') {
+        rail.appendChild(renderMiniTodayList());
+      }
 
       // Project-scoped sections below
       const proj = projectById(view);
@@ -7143,6 +8200,219 @@
         tomorrowCards.forEach(c => tlist.appendChild(miniTodayRowEl(c)));
         panel.appendChild(tlist);
       }
+      return panel;
+    }
+
+    // ---------- Today view: at-a-glance Pulse panels ----------
+    function pulsePanelHead(title, count, accentColor) {
+      const badge = count > 0 ? el('span', {
+        style: { fontSize: '10px', padding: '2px 6px', borderRadius: '4px',
+          background: accentColor || 'var(--overlay)',
+          color: accentColor ? 'white' : 'var(--text-tertiary)',
+          fontFamily: 'JetBrains Mono, monospace', fontWeight: '600' },
+      }, String(count)) : null;
+      return el('div', { class: 'rail-panel-head' }, [
+        el('div', { class: 'rail-panel-title' }, title),
+        badge,
+      ]);
+    }
+
+    function relativeDayLabel(daysSince) {
+      if (daysSince === 0) return 'today';
+      if (daysSince === 1) return 'yesterday';
+      if (daysSince < 30) return daysSince + 'd ago';
+      if (daysSince < 365) return Math.floor(daysSince / 30) + 'mo ago';
+      return Math.floor(daysSince / 365) + 'y ago';
+    }
+
+    function renderProjectsPulsePanel() {
+      const projects = visibleProjects();
+      const panel = el('div', { class: 'rail-panel pulse-panel' });
+      panel.appendChild(pulsePanelHead('Projects', projects.length));
+
+      if (projects.length === 0) {
+        panel.appendChild(el('div', { class: 'pulse-empty' }, 'No projects yet. Or your ambitions are undocumented.'));
+        return panel;
+      }
+
+      const enriched = projects.map(p => {
+        const cards = state.cards.filter(c => c.project_id === p.id);
+        const open = cards.filter(c => !c.archived && !c.done_at).length;
+        const lastDoneMs = cards
+          .filter(c => c.done_at)
+          .map(c => new Date(c.done_at).getTime())
+          .reduce((a, b) => Math.max(a, b), 0);
+        const doneThisWeek = cards.filter(c => {
+          if (!c.done_at) return false;
+          return (Date.now() - new Date(c.done_at).getTime()) / 86400000 < 7;
+        }).length;
+        const daysSince = lastDoneMs ? Math.floor((Date.now() - lastDoneMs) / 86400000) : null;
+
+        let status, statusClass;
+        if (open === 0) { status = 'Empty'; statusClass = 'empty'; }
+        else if (daysSince === null) { status = 'New'; statusClass = 'active'; }
+        else if (daysSince <= 3) { status = 'Active'; statusClass = 'active'; }
+        else if (daysSince <= 14) { status = 'Stalled'; statusClass = 'stalled'; }
+        else { status = 'Dormant'; statusClass = 'dormant'; }
+
+        return { p, open, doneThisWeek, daysSince, status, statusClass };
+      }).sort((a, b) => {
+        const order = { active: 0, stalled: 1, dormant: 2, empty: 3 };
+        if (order[a.statusClass] !== order[b.statusClass]) return order[a.statusClass] - order[b.statusClass];
+        return b.open - a.open;
+      });
+
+      const list = el('div', { class: 'pulse-list' });
+      enriched.forEach(({ p, open, doneThisWeek, daysSince, status, statusClass }) => {
+        const accent = p.accent || { from: '#a855f7', to: '#ec4899' };
+        const lastLabel = daysSince === null ? 'untouched' : relativeDayLabel(daysSince);
+
+        list.appendChild(el('div', {
+          class: 'pulse-row',
+          onClick: () => { setState(s => { s.ui.active_view = p.id; }); },
+        }, [
+          el('div', { class: 'pulse-row-accent', style: {
+            background: 'linear-gradient(180deg, ' + accent.from + ', ' + accent.to + ')' } }),
+          el('div', { class: 'pulse-row-body' }, [
+            el('div', { class: 'pulse-row-title' }, p.name),
+            el('div', { class: 'pulse-row-meta' }, [
+              el('span', { class: 'pulse-pill ' + statusClass }, status),
+              el('span', {}, open + ' open'),
+              doneThisWeek > 0 ? el('span', {}, '· ' + doneThisWeek + '/wk done') : null,
+              el('span', { style: { marginLeft: 'auto' } }, lastLabel),
+            ]),
+          ]),
+        ]));
+      });
+      panel.appendChild(list);
+      return panel;
+    }
+
+    function renderNeedsAttentionPanel() {
+      const today = todayISO();
+      const todayMs = new Date(today + 'T00:00:00').getTime();
+
+      const overdue = state.cards.filter(c => {
+        if (c.archived || c.done_at) return false;
+        if (!contextMatches(contextOf(c, 'card'))) return false;
+        if (!c.due || c.due === 'today' || c.due === 'tomorrow') return false;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(c.due)) return false;
+        const dueMs = new Date(c.due + 'T00:00:00').getTime();
+        return !isNaN(dueMs) && dueMs < todayMs;
+      }).map(c => ({
+        card: c,
+        daysLate: Math.floor((todayMs - new Date(c.due + 'T00:00:00').getTime()) / 86400000),
+      })).sort((a, b) => b.daysLate - a.daysLate);
+
+      const stale = state.cards.filter(c => {
+        if (c.project_id !== 'inbox' || c.archived || c.done_at) return false;
+        if (!contextMatches(c.context)) return false;
+        if (!c.created_at) return false;
+        const ageDays = (Date.now() - new Date(c.created_at).getTime()) / 86400000;
+        return ageDays >= 14;
+      }).map(c => ({
+        card: c,
+        daysLate: Math.floor((Date.now() - new Date(c.created_at).getTime()) / 86400000),
+      })).sort((a, b) => b.daysLate - a.daysLate);
+
+      const total = overdue.length + stale.length;
+      const panel = el('div', { class: 'rail-panel pulse-panel' });
+      panel.appendChild(pulsePanelHead('Needs Attention', total, total > 0 ? 'rgba(239, 68, 68, 0.85)' : null));
+
+      if (total === 0) {
+        panel.appendChild(el('div', { class: 'pulse-empty' }, 'Nothing slipping. Suspicious.'));
+        return panel;
+      }
+
+      const list = el('div', { class: 'pulse-list' });
+      const overdueShown = overdue.slice(0, 8);
+      overdueShown.forEach(({ card, daysLate }) => {
+        const proj = card.project_id !== 'inbox' ? projectById(card.project_id) : null;
+        list.appendChild(attentionRowEl(card, daysLate + 'd late', proj));
+      });
+      if (overdue.length > overdueShown.length) {
+        list.appendChild(el('div', { class: 'pulse-more' }, '+' + (overdue.length - overdueShown.length) + ' more overdue'));
+      }
+
+      if (stale.length) {
+        list.appendChild(el('div', { class: 'pulse-section-label' }, 'Bank rot · ' + stale.length));
+        stale.slice(0, 5).forEach(({ card, daysLate }) => {
+          list.appendChild(attentionRowEl(card, daysLate + 'd in bank', null));
+        });
+      }
+
+      panel.appendChild(list);
+      return panel;
+    }
+
+    function attentionRowEl(card, lateLabel, proj) {
+      return el('div', {
+        class: 'pulse-row attention',
+        onClick: () => {
+          if (card.project_id !== 'inbox') {
+            setState(s => { s.ui.active_view = card.project_id; });
+            expandedCardId = card.id;
+          } else {
+            openCardEditModal(card.id);
+          }
+        },
+      }, [
+        el('div', {
+          class: 'pulse-row-check' + (card.done_at ? ' checked' : ''),
+          title: card.done_at ? 'Undo' : 'Mark done',
+          onClick: (e) => { e.stopPropagation(); toggleCardDone(card.id); },
+        }, card.done_at ? '✓' : ''),
+        el('div', { class: 'pulse-row-body' }, [
+          el('div', { class: 'pulse-row-title' }, card.title || '(untitled)'),
+          el('div', { class: 'pulse-row-meta' }, [
+            el('span', { class: 'pulse-pill late' }, lateLabel),
+            proj ? el('span', {}, '· ' + proj.name) : null,
+          ]),
+        ]),
+      ]);
+    }
+
+    function renderGoalsPulsePanel() {
+      const goals = visibleGoals();
+      const panel = el('div', { class: 'rail-panel pulse-panel' });
+      panel.appendChild(pulsePanelHead('Goals', goals.length));
+
+      if (goals.length === 0) {
+        panel.appendChild(el('div', { class: 'pulse-empty' }, 'No goals tracked. Goal-free living.'));
+        return panel;
+      }
+
+      const enriched = goals.map(g => {
+        const target = g.target_count || 1;
+        const thisPeriod = checkinsInPeriod(g, 0);
+        const pct = Math.min(100, Math.round((thisPeriod / target) * 100));
+        const streak = goalStreak(g);
+        return { g, target, thisPeriod, pct, streak };
+      }).sort((a, b) => a.pct - b.pct);
+
+      const list = el('div', { class: 'pulse-list' });
+      enriched.forEach(({ g, target, thisPeriod, pct, streak }) => {
+        const cadenceLabel = CADENCE_LABELS[g.cadence] || g.cadence;
+        list.appendChild(el('div', {
+          class: 'pulse-row goal',
+          onClick: () => { setState(s => { s.ui.active_view = 'goals'; }); },
+        }, [
+          el('div', { class: 'pulse-row-body' }, [
+            el('div', { class: 'pulse-row-title' }, [
+              el('span', { class: 'pulse-row-title-text' }, g.title),
+              streak > 0 ? el('span', { class: 'pulse-streak' }, '🔥' + streak) : null,
+            ]),
+            el('div', { class: 'pulse-bar' }, el('div', {
+              class: 'pulse-bar-fill' + (pct >= 100 ? ' done' : ''),
+              style: { width: pct + '%' } })),
+            el('div', { class: 'pulse-row-meta' }, [
+              el('span', { class: 'pulse-pill' }, cadenceLabel),
+              el('span', {}, thisPeriod + ' / ' + target),
+            ]),
+          ]),
+        ]));
+      });
+      panel.appendChild(list);
       return panel;
     }
 
