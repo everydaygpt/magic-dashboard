@@ -2470,8 +2470,13 @@
       const pat = getSyncPat();
       if (!pat) throw new Error('No sync token configured');
       opts = opts || {};
+      // keepalive=true lets the browser finish the request even if the page is
+      // being backgrounded/closed. Critical for iOS Safari, which kills setTimeout
+      // when you switch tabs or lock the phone — without keepalive, a pending
+      // sync push dies mid-flight and the changes never reach the gist.
       const res = await fetch('https://api.github.com' + path, {
         ...opts,
+        keepalive: !!opts.keepalive,
         headers: {
           'Authorization': 'Bearer ' + pat,
           'Accept': 'application/vnd.github+json',
@@ -2519,8 +2524,9 @@
       try { return JSON.parse(text); } catch (e) { return null; }
     }
 
-    async function pushToSync() {
+    async function pushToSync(opts) {
       if (!getSyncPat()) return;
+      const keepalive = !!(opts && opts.keepalive);
       try {
         syncStatus = 'syncing'; updateSyncBadge();
         const id = await ensureSyncGist();
@@ -2528,6 +2534,7 @@
         const payload = { ...state, last_updated: new Date().toISOString() };
         await ghApi('/gists/' + id, {
           method: 'PATCH',
+          keepalive,
           body: JSON.stringify({
             files: { [GIST_FILENAME]: { content: JSON.stringify(payload, null, 2) } },
           }),
@@ -2545,6 +2552,20 @@
       if (!getSyncPat()) return;
       clearTimeout(syncPushTimer);
       syncPushTimer = setTimeout(pushToSync, SYNC_PUSH_DEBOUNCE);
+    }
+
+    // Flush any pending sync push immediately. Called when the page is being
+    // hidden/closed so iOS Safari (which freezes setTimeout) doesn't lose
+    // changes that were debounced but not yet sent.
+    function flushPendingPush() {
+      if (!getSyncPat()) return;
+      if (!syncPushTimer) return;
+      clearTimeout(syncPushTimer);
+      syncPushTimer = null;
+      // keepalive lets the browser complete the request even if the page is
+      // unloading. The fetch returns immediately; we don't await it because
+      // the page may be torn down before the await resolves.
+      pushToSync({ keepalive: true });
     }
 
     function updateSyncBadge() {
@@ -6838,6 +6859,54 @@
         dueOpt('👤 me', c.lane === 'me', () => updateCard(c.id, { lane: 'me' })),
         dueOpt('🤖 ai', c.lane === 'ai', () => updateCard(c.id, { lane: 'ai' })),
       ]));
+      // Time: pin a specific HH:MM. Composes with `due` (or implicit "today") into
+      // scheduled_time so the task lands on the Today schedule grid at that hour.
+      const cardLabelStyle = { fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.05em' };
+      const currentTimeHHMM = extractTimeHHMM(c.scheduled_time);
+      const timeInput = el('input', {
+        type: 'time', step: 900, value: currentTimeHHMM,
+        onClick: (e) => e.stopPropagation(),
+        onChange: (e) => {
+          const v = e.target.value || '';
+          if (!v) { updateCard(c.id, { scheduled_time: null }); return; }
+          // If no due date set, default to today so the time has a date to anchor to.
+          const anchorDue = c.due || 'today';
+          const composed = composeScheduledTime(anchorDue, v);
+          updateCard(c.id, { scheduled_time: composed, due: c.due || anchorDue });
+        },
+        style: { padding: '4px 6px', borderRadius: '6px', background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--text-secondary)', fontSize: '11px' },
+      });
+      const timeRow = el('div', { class: 'card-edit-row' }, [
+        el('span', { style: cardLabelStyle }, 'Time'),
+        timeInput,
+        currentTimeHHMM ? el('button', {
+          class: 'due-opt',
+          onClick: (e) => { e.stopPropagation(); updateCard(c.id, { scheduled_time: null }); },
+        }, 'Clear') : null,
+        !c.due && currentTimeHHMM ? el('span', { style: { fontSize: '10px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace' } }, '↑ pick a due date above to anchor') : null,
+      ]);
+      node.appendChild(timeRow);
+      // Duration: how long this should block on the schedule. Quick chips + custom.
+      const durationOpts = [15, 30, 45, 60, 90, 120];
+      const fmtDur = (m) => {
+        if (m < 60) return m + 'm';
+        const h = Math.floor(m / 60);
+        const rem = m % 60;
+        return h + 'h' + (rem ? ' ' + rem + 'm' : '');
+      };
+      const durRow = el('div', { class: 'card-edit-row' }, [
+        el('span', { style: cardLabelStyle }, 'Duration'),
+        ...durationOpts.map(m => dueOpt(
+          fmtDur(m),
+          c.duration_minutes === m,
+          () => updateCard(c.id, { duration_minutes: m })
+        )),
+        c.duration_minutes ? el('button', {
+          class: 'due-opt',
+          onClick: (e) => { e.stopPropagation(); updateCard(c.id, { duration_minutes: null }); },
+        }, 'Clear') : null,
+      ]);
+      node.appendChild(durRow);
       if (c.today_slot) {
         node.appendChild(el('div', { class: 'card-edit-row' }, [
           el('span', { style: { fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.05em' } }, 'In plan'),
@@ -6852,12 +6921,23 @@
       const subsWrap = subtaskSectionEl(c.id);
       subsWrap.addEventListener('click', (e) => e.stopPropagation());
       node.appendChild(subsWrap);
+      const isDone = !!c.done_at;
       node.appendChild(el('div', { class: 'list-item-actions' }, [
         el('button', {
           class: 'icon-btn danger', title: 'Delete',
           onClick: (e) => { e.stopPropagation(); if (confirm('Delete "' + c.title + '"?')) deleteCard(c.id); },
         }, '🗑'),
         el('div', { class: 'spacer' }),
+        el('button', {
+          class: 'text-btn' + (isDone ? '' : ' primary'),
+          title: isDone ? 'Bring this back from the done pile' : 'Mark complete and close',
+          onClick: (e) => {
+            e.stopPropagation();
+            toggleCardDone(c.id);
+            expandedCardId = null;
+            render();
+          },
+        }, isDone ? '↶ Reopen' : '✓ Mark Complete'),
         el('button', {
           onClick: (e) => { e.stopPropagation(); expandedCardId = null; render(); },
           style: { padding: '6px 12px', fontSize: '12px', color: 'var(--text-secondary)' },
@@ -8459,6 +8539,15 @@
       if (getSyncPat()) {
         firstLoadSync().catch(e => console.warn(e));
       }
+      // iOS Safari freezes setTimeout when you switch tabs or lock the phone,
+      // which kills the 2.5s sync debounce mid-flight and loses changes. Flush
+      // any pending push immediately on visibility/page-hide so the changes
+      // make it to the gist before the runtime is suspended.
+      // pagehide is more reliable than beforeunload on iOS Safari.
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') flushPendingPush();
+      });
+      window.addEventListener('pagehide', flushPendingPush);
       document.addEventListener('click', (e) => {
         if (e.target.closest('.rail-item') || e.target.closest('.context-pill')) {
           snarkLine = pick(SNARK_LINES);
