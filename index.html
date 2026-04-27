@@ -1628,6 +1628,44 @@
       color: var(--text-tertiary);
     }
 
+    /* ---------- Inline filter (search) input ---------- */
+    .inline-filter {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 10px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      transition: border-color 120ms var(--ease), box-shadow 120ms var(--ease);
+      margin-bottom: 10px;
+    }
+    .inline-filter:focus-within {
+      border-color: var(--accent-from);
+      box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.15);
+    }
+    .inline-filter-icon { font-size: 12px; opacity: 0.6; flex-shrink: 0; }
+    .inline-filter-input {
+      flex: 1;
+      background: transparent;
+      border: 0;
+      outline: 0;
+      color: var(--text-primary);
+      font-size: 13px;
+      font-family: inherit;
+      padding: 2px 0;
+    }
+    .inline-filter-input::placeholder { color: var(--text-tertiary); }
+    .inline-filter-clear {
+      width: 20px; height: 20px;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: var(--overlay);
+      color: var(--text-tertiary);
+      border: 0; cursor: pointer;
+      border-radius: 4px;
+      font-size: 14px; font-weight: 700;
+      flex-shrink: 0;
+    }
+    .inline-filter-clear:hover { background: var(--overlay-strong); color: var(--text-primary); }
+
     /* ---------- Today plan ---------- */
     /* Single-day-other-than-today (Plan tomorrow) keeps the narrow centered layout */
     .plan-wrap { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
@@ -3214,6 +3252,9 @@
     let saveTimer = null;
     let snarkLine = pick(SNARK_LINES);
     let currentPlanDate = todayISO();
+    // Inline search filters — ephemeral, not persisted across sessions
+    let bankFilterQuery = '';
+    let projectFilterQuery = '';
     let currentDailyDate = todayISO();
     let currentWeeklyDate = null; // lazy-init to mondayOf(todayISO) inside render
     let currentIdeaCategory = null; // null = All
@@ -4582,6 +4623,12 @@
       ]);
       nav.appendChild(tabs);
       nav.appendChild(el('div', { class: 'nav-spacer' }));
+      nav.appendChild(el('button', {
+        class: 'nav-drawer-btn',
+        title: 'Search everything · Cmd+K',
+        style: { display: 'inline-flex' },
+        onClick: () => openCommandPalette(),
+      }, '🔍'));
       nav.appendChild(contextPillsEl(state.ui.context_filter));
       nav.appendChild(el('button', {
         class: 'nav-drawer-btn right',
@@ -5643,11 +5690,16 @@
 
     // ---------- Today: inline Bank panel (replaces the left-rail bank for Today view) ----------
     function renderTodayBankPanel() {
-      const cards = visibleBankCards();
+      const allCards = visibleBankCards();
+      const q = bankFilterQuery.trim().toLowerCase();
+      const cards = q
+        ? allCards.filter(c => (c.title || '').toLowerCase().includes(q) || (c.notes || '').toLowerCase().includes(q))
+        : allCards;
       const panel = el('div', { class: 'today-panel today-bank-panel' });
+      const countLabel = q ? cards.length + ' / ' + allCards.length : String(allCards.length);
       panel.appendChild(el('div', { class: 'today-panel-head' }, [
         el('span', {}, 'Tasks'),
-        el('span', { class: 'count' }, String(cards.length)),
+        el('span', { class: 'count' }, countLabel),
         el('div', { class: 'spacer' }),
         el('button', {
           class: 'text-btn',
@@ -5660,14 +5712,48 @@
           onClick: () => openEmailAnalyzeModal(),
         }, '📧 From email'),
       ]));
+      // Inline filter — shows only when there are cards to filter
+      if (allCards.length > 0) {
+        panel.appendChild(filterInputEl({
+          value: bankFilterQuery,
+          placeholder: 'Search tasks…',
+          onInput: (v) => { bankFilterQuery = v; render(); },
+          onClear: () => { bankFilterQuery = ''; render(); },
+        }));
+      }
       const list = el('div', { class: 'bank-list today-bank-list', dataset: { dropKind: 'bank' } });
       if (cards.length === 0) {
-        list.appendChild(el('div', { class: 'bank-empty' }, EMPTY_COPY.bank));
+        list.appendChild(el('div', { class: 'bank-empty' }, q ? 'No tasks match "' + bankFilterQuery + '".' : EMPTY_COPY.bank));
       } else {
         cards.forEach(c => list.appendChild(bankCardEl(c)));
       }
       panel.appendChild(list);
       return panel;
+    }
+
+    // Reusable inline search/filter input
+    function filterInputEl({ value, placeholder, onInput, onClear }) {
+      const wrap = el('div', { class: 'inline-filter' });
+      const input = el('input', {
+        type: 'text',
+        class: 'inline-filter-input',
+        placeholder: placeholder || 'Filter…',
+        value: value || '',
+      });
+      input.addEventListener('input', (e) => onInput(e.target.value));
+      input.addEventListener('keydown', (e) => { if (e.key === 'Escape') { input.value = ''; onClear(); } });
+      const clearBtn = el('button', {
+        class: 'inline-filter-clear',
+        title: 'Clear (Esc)',
+        style: { display: value ? 'inline-flex' : 'none' },
+        onClick: () => onClear(),
+      }, '×');
+      wrap.appendChild(el('span', { class: 'inline-filter-icon' }, '🔍'));
+      wrap.appendChild(input);
+      wrap.appendChild(clearBtn);
+      // Auto-focus when filter has a value (re-render keeps focus)
+      if (value) setTimeout(() => { input.focus(); input.setSelectionRange(value.length, value.length); }, 0);
+      return wrap;
     }
 
     // Quote of the day — small block on Today, click jumps to Books view
@@ -7488,6 +7574,14 @@
         el('button', { class: 'icon-btn danger', title: 'Delete project', onClick: () => openDeleteProjectModal(proj) }, '🗑'),
       ]));
 
+      // Inline project filter — narrows cards across all columns by title/notes
+      body.appendChild(filterInputEl({
+        value: projectFilterQuery,
+        placeholder: 'Search cards in this project…',
+        onInput: (v) => { projectFilterQuery = v; render(); },
+        onClear: () => { projectFilterQuery = ''; render(); },
+      }));
+
       if (viewMode === 'table') {
         renderProjectTable(body, proj);
         return;
@@ -7591,9 +7685,17 @@
     }
 
     function renderProjectTable(body, proj) {
-      const allCards = state.cards.filter(c => c.project_id === proj.id && !c.archived);
-      if (allCards.length === 0) {
+      const everyCard = state.cards.filter(c => c.project_id === proj.id && !c.archived);
+      if (everyCard.length === 0) {
         body.appendChild(el('div', { class: 'pt-empty' }, 'No cards yet. Switch back to Cards view to add some.'));
+        return;
+      }
+      const q = projectFilterQuery.trim().toLowerCase();
+      const allCards = q
+        ? everyCard.filter(c => (c.title || '').toLowerCase().includes(q) || (c.notes || '').toLowerCase().includes(q))
+        : everyCard;
+      if (allCards.length === 0) {
+        body.appendChild(el('div', { class: 'pt-empty' }, 'No cards match "' + projectFilterQuery + '".'));
         return;
       }
       const colById = Object.fromEntries(proj.columns.map(col => [col.id, col]));
@@ -7710,7 +7812,11 @@
     }
 
     function columnEl(proj, col) {
-      const cards = cardsForColumn(proj.id, col.id);
+      const allCards = cardsForColumn(proj.id, col.id);
+      const q = projectFilterQuery.trim().toLowerCase();
+      const cards = q
+        ? allCards.filter(c => (c.title || '').toLowerCase().includes(q) || (c.notes || '').toLowerCase().includes(q))
+        : allCards;
       const node = el('div', { class: 'column', dataset: { columnId: col.id, projectId: proj.id } });
       const menuWrap = el('div', { class: 'column-menu-wrap' });
       const menuBtn = el('button', {
@@ -7729,7 +7835,7 @@
           },
           onKeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } },
         }, col.name),
-        el('span', { class: 'column-count' }, String(cards.length)),
+        el('span', { class: 'column-count' }, q && cards.length !== allCards.length ? cards.length + ' / ' + allCards.length : String(allCards.length)),
         menuWrap,
       ]);
       node.appendChild(header);
