@@ -6976,6 +6976,7 @@
         books.length + ' book' + (books.length === 1 ? '' : 's') + ' · ' +
         totalQuotes + ' quote' + (totalQuotes === 1 ? '' : 's')));
       header.appendChild(el('div', { class: 'main-actions' }, [
+        el('button', { class: 'text-btn', onClick: () => openBulkImportBooksModal() }, '↓ Bulk import'),
         el('button', { class: 'text-btn primary', onClick: () => openNewBookModal() }, '+ Add book'),
       ]));
 
@@ -7107,6 +7108,168 @@
         ]),
       ]);
       setTimeout(() => titleInput.focus(), 50);
+    }
+
+    // Bulk import: paste a markdown-ish list of books and quotes
+    function parseBookHeading(text) {
+      // Try common author separators in order of specificity
+      const seps = [/\s+—\s+/, /\s+–\s+/, /\s+by\s+/i, /\s*\|\s*/, /\s+-\s+/];
+      for (const sep of seps) {
+        if (sep.test(text)) {
+          const idx = text.search(sep);
+          return { title: text.slice(0, idx).trim(), author: text.slice(idx).replace(sep, '').trim() };
+        }
+      }
+      return { title: text.trim(), author: '' };
+    }
+
+    function parseQuoteLine(line) {
+      // Strip leading list markers
+      let text = line.replace(/^\s*[->•*]+\s*/, '').trim();
+      // Strip surrounding quotes (straight + curly)
+      text = text.replace(/^["“‘']\s*/, '').replace(/\s*["”’']\s*$/, '').trim();
+      // Extract trailing page reference: " — p. 47", "(p. 47)", "p.47", "page 47"
+      let page = '';
+      const pageMatch = text.match(/[\s\(](?:[-—–]\s*)?p(?:\.|age)?\s*(\d+)\s*\)?\s*["”’']?\s*$/i);
+      if (pageMatch) {
+        page = pageMatch[1];
+        text = text.slice(0, pageMatch.index).replace(/[\s\(\—,–-]+$/, '').replace(/["”’']\s*$/, '').trim();
+      }
+      return { text, page };
+    }
+
+    function parseBulkBooks(input) {
+      const books = [];
+      let current = null;
+      const lines = input.split(/\r?\n/);
+      for (const raw of lines) {
+        const line = raw.trim();
+        if (!line) continue;
+
+        // # Heading → book
+        const hashMatch = line.match(/^#{1,3}\s*(.+?)\s*#*\s*$/);
+        if (hashMatch) {
+          const head = parseBookHeading(hashMatch[1]);
+          current = { ...head, quotes: [] };
+          books.push(current);
+          continue;
+        }
+
+        // Quote markers: > " ' - * •
+        const isQuoteMarker = /^[->•*"“‘']/.test(line);
+        if (isQuoteMarker) {
+          if (!current) { current = { title: '(untitled)', author: '', quotes: [] }; books.push(current); }
+          current.quotes.push(parseQuoteLine(line));
+          continue;
+        }
+
+        // No marker: heuristic — if it looks like "Title by Author" or "Title — Author" treat as book
+        if (!current || /\sby\s|—|–|\|/.test(line)) {
+          const head = parseBookHeading(line);
+          current = { ...head, quotes: [] };
+          books.push(current);
+        } else {
+          // Fallback: treat as a quote on the current book
+          current.quotes.push(parseQuoteLine(line));
+        }
+      }
+      // Drop completely empty books (no title AND no quotes)
+      return books.filter(b => (b.title && b.title !== '(untitled)') || b.quotes.length > 0);
+    }
+
+    function openBulkImportBooksModal() {
+      const example = '# Creating Magic — Lee Cockerell\n> "You can teach a strategy. You cannot teach drive." — p. 47\n> "Doing what is right is more important than doing what is easy." (p. 88)\n\n# Atomic Habits — James Clear\n> "You do not rise to the level of your goals. You fall to the level of your systems." p. 27\n';
+
+      const textarea = el('textarea', {
+        rows: 14,
+        placeholder: example,
+        style: {
+          width: '100%', minHeight: '260px',
+          fontFamily: 'JetBrains Mono, monospace', fontSize: '12px', lineHeight: '1.55',
+          padding: '10px 12px',
+          background: 'var(--card)', border: '1px solid var(--border)',
+          borderRadius: '8px', color: 'var(--text-primary)', resize: 'vertical',
+        },
+      });
+
+      const previewBox = el('div', {
+        style: {
+          maxHeight: '220px', overflowY: 'auto',
+          padding: '10px', borderRadius: '8px',
+          background: 'var(--surface-sub)', border: '1px solid var(--border)',
+        },
+      });
+      const importBtn = el('button', { class: 'primary', disabled: true }, 'Import');
+
+      let parsed = [];
+
+      const updatePreview = () => {
+        parsed = parseBulkBooks(textarea.value);
+        clearNode(previewBox);
+        if (parsed.length === 0) {
+          previewBox.appendChild(el('div', {
+            style: { color: 'var(--text-tertiary)', fontStyle: 'italic', fontSize: '12px' },
+          }, 'Paste your books above. The preview will appear here.'));
+          importBtn.disabled = true;
+          return;
+        }
+        const totalQuotes = parsed.reduce((a, b) => a + b.quotes.length, 0);
+        previewBox.appendChild(el('div', {
+          style: { fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '10px', fontWeight: '600', fontFamily: 'JetBrains Mono, monospace' },
+        }, parsed.length + ' book' + (parsed.length === 1 ? '' : 's') + ' · ' + totalQuotes + ' quote' + (totalQuotes === 1 ? '' : 's')));
+        parsed.forEach(b => {
+          previewBox.appendChild(el('div', {
+            style: { padding: '6px 10px', marginBottom: '4px', background: 'var(--card)', borderRadius: '6px', fontSize: '12px' },
+          }, [
+            el('div', { style: { fontWeight: '600' } }, b.title + (b.author ? ' — ' + b.author : '')),
+            el('div', { style: { fontSize: '10px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace' } },
+              b.quotes.length + ' quote' + (b.quotes.length === 1 ? '' : 's')),
+          ]));
+        });
+        importBtn.disabled = false;
+      };
+
+      textarea.addEventListener('input', updatePreview);
+
+      importBtn.addEventListener('click', () => {
+        if (parsed.length === 0) return;
+        const totalQuotes = parsed.reduce((a, b) => a + b.quotes.length, 0);
+        if (!confirm('Import ' + parsed.length + ' book' + (parsed.length === 1 ? '' : 's') + ' and ' + totalQuotes + ' quote' + (totalQuotes === 1 ? '' : 's') + '?')) return;
+        setState(s => {
+          parsed.forEach(b => {
+            const bookId = uid('book');
+            s.books = s.books || [];
+            s.quotes = s.quotes || [];
+            s.books.unshift({ id: bookId, title: b.title || '(untitled)', author: b.author || '', created_at: now() });
+            b.quotes.forEach(q => {
+              s.quotes.unshift({ id: uid('quote'), book_id: bookId, text: q.text, page: q.page || '', created_at: now() });
+            });
+          });
+        });
+        closeModal();
+      });
+
+      openModal([
+        el('h3', {}, 'Bulk import books'),
+        el('div', { class: 'modal-label', style: { lineHeight: '1.5' } },
+          'Format hints — flexible, paste from notes:'),
+        el('div', {
+          style: { fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', lineHeight: '1.6', marginBottom: '8px', padding: '8px 10px', background: 'var(--surface-sub)', borderRadius: '6px' },
+        }, [
+          el('div', {}, '# Title — Author      (or "Title by Author" or "Title | Author")'),
+          el('div', {}, '> Quote line         (or " or - or • prefix; surrounding quotes optional)'),
+          el('div', {}, 'Add p. 47 at end of a quote to record the page'),
+        ]),
+        textarea,
+        el('div', { class: 'modal-label', style: { marginTop: '12px' } }, 'Preview'),
+        previewBox,
+        el('div', { class: 'modal-actions' }, [
+          el('button', { onClick: closeModal }, 'Cancel'),
+          importBtn,
+        ]),
+      ]);
+      setTimeout(() => textarea.focus(), 50);
+      updatePreview();
     }
 
     // ---------- Activity view ----------
