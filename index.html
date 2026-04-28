@@ -764,7 +764,10 @@
       font-family: 'JetBrains Mono', monospace;
       font-size: 11px; color: var(--text-tertiary);
     }
-    .projects-hub-card-link-row { margin-top: -2px; }
+    .projects-hub-card-link-row {
+      display: flex; flex-wrap: wrap; gap: 4px;
+      margin-top: -2px;
+    }
     .projects-hub-card-link {
       display: inline-flex; align-items: center; gap: 6px;
       font-size: 11px; color: var(--text-tertiary);
@@ -776,7 +779,45 @@
     .projects-hub-card-link:hover { color: var(--text-primary); background: var(--overlay-strong); }
     .projects-hub-card-link .truncate {
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-      max-width: 200px;
+      max-width: 160px;
+    }
+
+    /* Project links manage-modal */
+    .project-links-list {
+      display: flex; flex-direction: column; gap: 6px;
+      max-height: 50vh; overflow: auto;
+      padding: 2px;
+    }
+    .project-link-row {
+      display: grid;
+      grid-template-columns: minmax(120px, 1fr) minmax(180px, 2fr) auto auto;
+      gap: 6px;
+      align-items: center;
+    }
+    .project-link-input {
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface-sub);
+      color: var(--text-primary);
+      font-size: 12px;
+      min-width: 0;
+    }
+    .project-link-input:focus { border-color: var(--border-strong); outline: none; }
+    .project-links-empty {
+      padding: 18px 12px; text-align: center;
+      color: var(--text-tertiary); font-size: 12px; font-style: italic;
+    }
+    @media (max-width: 600px) {
+      .project-link-row {
+        grid-template-columns: 1fr auto auto;
+        grid-template-areas: "label open remove" "url url url";
+        gap: 4px;
+      }
+      .project-link-row .project-link-label { grid-area: label; }
+      .project-link-row .project-link-url { grid-area: url; }
+      .project-link-row .icon-btn:nth-of-type(1) { grid-area: open; }
+      .project-link-row .icon-btn:nth-of-type(2) { grid-area: remove; }
     }
     .projects-hub-card-people {
       display: flex; flex-wrap: wrap; gap: 4px;
@@ -2369,6 +2410,25 @@
       font-style: italic;
       font-size: 13px;
     }
+    .pt-add-row {
+      display: block; width: 100%;
+      margin-top: 6px;
+      padding: 12px 16px;
+      background: var(--surface-sub);
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+      color: var(--text-secondary);
+      font-size: 13px;
+      font-family: inherit;
+      cursor: pointer;
+      text-align: left;
+      transition: border-color 120ms var(--ease), background 120ms var(--ease), color 120ms var(--ease);
+    }
+    .pt-add-row:hover {
+      border-color: var(--accent-from);
+      background: var(--card-hover);
+      color: var(--text-primary);
+    }
 
     @media (max-width: 1024px) {
       .project-table thead th.pt-hide-md,
@@ -3456,12 +3516,34 @@
     function migrateState(s) {
       if (!s || typeof s !== 'object') return defaultState();
       if (s.version !== 1) return defaultState();
-      s.projects = (s.projects || []).map(p => ({
-        ...p,
-        context: p.context || 'work',
-        people: Array.isArray(p.people) ? p.people : [],
-        link: typeof p.link === 'string' ? p.link : '',
-      }));
+      s.projects = (s.projects || []).map(p => {
+        // Migrate legacy single `link` string → `links` array of {label, url}.
+        // Old projects had a single link field; new ones support a list with
+        // human-readable labels (GitHub repo, Notion doc, etc.).
+        let links = Array.isArray(p.links) ? p.links.filter(l => l && typeof l.url === 'string') : null;
+        if (!links) {
+          if (typeof p.link === 'string' && p.link.trim()) {
+            // Best-guess label from the hostname
+            let label = '';
+            try { label = new URL(p.link).hostname.replace(/^www\./, ''); } catch (_) { label = 'Link'; }
+            links = [{ label, url: p.link.trim() }];
+          } else {
+            links = [];
+          }
+        }
+        // Sanitize each link
+        links = links.map(l => ({
+          label: typeof l.label === 'string' ? l.label.trim() : '',
+          url: typeof l.url === 'string' ? l.url.trim() : '',
+        })).filter(l => l.url);
+        return {
+          ...p,
+          context: p.context || 'work',
+          people: Array.isArray(p.people) ? p.people : [],
+          link: typeof p.link === 'string' ? p.link : '',  // keep for back-compat readers
+          links,
+        };
+      });
       s.ideas = (s.ideas || []).map(i => ({
         ...i,
         context: i.context || 'work',
@@ -3774,7 +3856,7 @@
         { id: uid('col'), name: 'Done' },
       ];
       setState(s => {
-        s.projects.push({ id, name, accent, context, people: [], link: '', columns: cols, created_at: now() });
+        s.projects.push({ id, name, accent, context, people: [], link: '', links: [], columns: cols, created_at: now() });
         s.ui.active_view = id;
         logActivity('project_created', 'Created project "' + name + '"', { project_id: id, context });
       });
@@ -3809,24 +3891,122 @@
         p.people = p.people.filter(x => x !== name);
       });
     }
+    function normalizeUrl(url) {
+      const t = (url || '').trim();
+      if (!t) return '';
+      if (/^https?:\/\//i.test(t)) return t;
+      return 'https://' + t;
+    }
+    function addProjectLink(pid, label, url) {
+      setState(s => {
+        const p = s.projects.find(x => x.id === pid);
+        if (!p) return;
+        if (!Array.isArray(p.links)) p.links = [];
+        p.links.push({ label: (label || '').trim(), url: normalizeUrl(url) });
+      });
+    }
+    function updateProjectLink(pid, index, fields) {
+      setState(s => {
+        const p = s.projects.find(x => x.id === pid);
+        if (!p || !Array.isArray(p.links) || !p.links[index]) return;
+        if ('label' in fields) p.links[index].label = (fields.label || '').trim();
+        if ('url' in fields) p.links[index].url = normalizeUrl(fields.url);
+      });
+    }
+    function removeProjectLink(pid, index) {
+      setState(s => {
+        const p = s.projects.find(x => x.id === pid);
+        if (!p || !Array.isArray(p.links)) return;
+        p.links.splice(index, 1);
+      });
+    }
+    // Legacy single-link helper kept for any callers that still pass through it
     function setProjectLink(pid, link) {
       setState(s => {
         const p = s.projects.find(x => x.id === pid);
         if (!p) return;
-        p.link = (link || '').trim();
+        const url = normalizeUrl(link);
+        if (!Array.isArray(p.links)) p.links = [];
+        if (!url) {
+          p.links = [];
+        } else if (p.links.length === 0) {
+          let label = ''; try { label = new URL(url).hostname.replace(/^www\./, ''); } catch (_) { label = 'Link'; }
+          p.links.push({ label, url });
+        } else {
+          p.links[0].url = url;
+        }
+        p.link = url; // back-compat
       });
     }
-    function promptProjectLink(proj) {
-      const current = proj.link || '';
-      const v = prompt('Link URL for "' + proj.name + '" (leave blank to remove):', current);
-      if (v === null) return;
-      const trimmed = v.trim();
-      if (trimmed && !/^https?:\/\//i.test(trimmed)) {
-        setProjectLink(proj.id, 'https://' + trimmed);
-      } else {
-        setProjectLink(proj.id, trimmed);
-      }
+    function openProjectLinksModal(proj) {
+      const linksEl = el('div', { class: 'project-links-list' });
+
+      const renderLinks = () => {
+        while (linksEl.firstChild) linksEl.removeChild(linksEl.firstChild);
+        const fresh = state.projects.find(p => p.id === proj.id) || proj;
+        const links = (fresh && fresh.links) || [];
+        if (links.length === 0) {
+          linksEl.appendChild(el('div', { class: 'project-links-empty' }, 'No links yet. Add one below.'));
+          return;
+        }
+        links.forEach((link, i) => {
+          const row = el('div', { class: 'project-link-row' });
+          const labelInput = el('input', {
+            type: 'text', value: link.label || '', placeholder: 'Label (e.g. GitHub repo)',
+            class: 'project-link-input project-link-label',
+            onChange: (e) => updateProjectLink(proj.id, i, { label: e.target.value }),
+            onBlur: (e) => updateProjectLink(proj.id, i, { label: e.target.value }),
+          });
+          const urlInput = el('input', {
+            type: 'url', value: link.url || '', placeholder: 'https://...',
+            class: 'project-link-input project-link-url',
+            onChange: (e) => updateProjectLink(proj.id, i, { url: e.target.value }),
+            onBlur: (e) => { updateProjectLink(proj.id, i, { url: e.target.value }); renderLinks(); },
+          });
+          const openBtn = link.url
+            ? el('a', {
+                href: link.url, target: '_blank', rel: 'noopener',
+                class: 'icon-btn', title: 'Open ' + link.url,
+              }, '↗')
+            : el('span', { class: 'icon-btn', style: { opacity: 0.3, cursor: 'default' } }, '↗');
+          const removeBtn = el('button', {
+            class: 'icon-btn danger', title: 'Remove this link',
+            onClick: () => { removeProjectLink(proj.id, i); renderLinks(); },
+          }, '✕');
+          row.appendChild(labelInput);
+          row.appendChild(urlInput);
+          row.appendChild(openBtn);
+          row.appendChild(removeBtn);
+          linksEl.appendChild(row);
+        });
+      };
+      renderLinks();
+
+      const addBtn = el('button', {
+        class: 'text-btn primary',
+        onClick: () => {
+          addProjectLink(proj.id, '', '');
+          renderLinks();
+          setTimeout(() => {
+            const labels = linksEl.querySelectorAll('.project-link-label');
+            if (labels.length) labels[labels.length - 1].focus();
+          }, 0);
+        },
+      }, '+ Add link');
+
+      openModal([
+        el('div', { class: 'modal-title' }, 'Links — ' + proj.name),
+        el('div', { style: { fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '10px' } },
+          'Add as many as you need: GitHub repo, Notion doc, design file, drive folder, etc. Edits save automatically.'),
+        linksEl,
+        el('div', { style: { display: 'flex', gap: '10px', marginTop: '14px', justifyContent: 'space-between' } }, [
+          addBtn,
+          el('button', { class: 'text-btn', onClick: () => closeModal() }, 'Done'),
+        ]),
+      ]);
     }
+    // Legacy name kept so existing call sites don't break
+    function promptProjectLink(proj) { openProjectLinksModal(proj); }
 
     function deleteProject(id, mode) {
       setState(s => {
@@ -5526,15 +5706,25 @@
         el('span', { class: 'projects-hub-card-ctx ' + (p.context || 'work') }, p.context || 'work'),
       ];
       node.appendChild(el('div', { class: 'projects-hub-card-head' }, headChildren));
-      if (p.link) {
-        const linkRow = el('div', { class: 'projects-hub-card-link-row' }, [
-          el('a', {
-            href: p.link, target: '_blank', rel: 'noopener',
+      const cardLinks = Array.isArray(p.links) ? p.links.filter(l => l && l.url) : [];
+      if (cardLinks.length) {
+        const linkRow = el('div', { class: 'projects-hub-card-link-row' });
+        cardLinks.slice(0, 3).forEach(link => {
+          const display = link.label || link.url.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+          linkRow.appendChild(el('a', {
+            href: link.url, target: '_blank', rel: 'noopener',
             class: 'projects-hub-card-link',
             onClick: (e) => e.stopPropagation(),
-            title: p.link,
-          }, [ el('span', {}, '🔗'), el('span', { class: 'truncate' }, p.link.replace(/^https?:\/\//, '')) ]),
-        ]);
+            title: link.url,
+          }, [ el('span', {}, '🔗'), el('span', { class: 'truncate' }, display) ]));
+        });
+        if (cardLinks.length > 3) {
+          linkRow.appendChild(el('span', {
+            class: 'projects-hub-card-link',
+            style: { color: 'var(--text-tertiary)', cursor: 'default' },
+            title: cardLinks.slice(3).map(l => l.label || l.url).join('\n'),
+          }, '+' + (cardLinks.length - 3) + ' more'));
+        }
         node.appendChild(linkRow);
       }
       node.appendChild(el('div', { class: 'projects-hub-card-meta' }, [
@@ -7603,16 +7793,18 @@
         el('span', { class: 'activity-ctx ' + proj.context, title: 'Project context' }, proj.context),
       ]));
       header.appendChild(el('div', { class: 'main-subtitle' }, projectCardCount(proj.id) + ' cards · ' + proj.columns.length + ' columns'));
-      const linkBtn = proj.link
-        ? el('a', {
-            class: 'icon-btn', href: proj.link, target: '_blank', rel: 'noopener',
-            title: 'Open ' + proj.link,
-            onContextmenu: (e) => { e.preventDefault(); promptProjectLink(proj); },
-          }, '🔗')
-        : el('button', {
-            class: 'icon-btn', title: 'Set project link (URL)',
-            onClick: () => promptProjectLink(proj),
-          }, '🔗');
+      // Project links — list of {label, url}. Header button opens the manage
+      // modal; count badge shows when 2+ links exist.
+      const projLinks = Array.isArray(proj.links) ? proj.links.filter(l => l && l.url) : [];
+      const linkBtn = el('button', {
+        class: 'icon-btn',
+        title: projLinks.length === 0
+          ? 'Add a link to this project'
+          : projLinks.length === 1
+            ? ('Manage links · 1 saved (' + (projLinks[0].label || projLinks[0].url) + ')')
+            : 'Manage links · ' + projLinks.length + ' saved',
+        onClick: () => openProjectLinksModal(proj),
+      }, projLinks.length > 1 ? '🔗 ' + projLinks.length : '🔗');
       const viewMode = state.ui.project_view_mode || 'kanban';
       const viewToggle = el('div', { class: 'view-toggle', title: 'Switch between kanban and table' }, [
         el('button', {
@@ -7632,6 +7824,11 @@
         onClick: () => { if (aiCount > 0) openAiPromptExportModal(proj); },
       }, '🤖');
       header.appendChild(el('div', { class: 'main-actions' }, [
+        el('button', {
+          class: 'text-btn primary',
+          title: 'Add a new task to this project',
+          onClick: () => addProjectTaskAndEdit(proj),
+        }, '+ Add task'),
         viewToggle,
         aiExportBtn,
         linkBtn,
@@ -7763,7 +7960,13 @@
     function renderProjectTable(body, proj) {
       const everyCard = state.cards.filter(c => c.project_id === proj.id && !c.archived);
       if (everyCard.length === 0) {
-        body.appendChild(el('div', { class: 'pt-empty' }, 'No cards yet. Switch back to Cards view to add some.'));
+        body.appendChild(el('div', { class: 'pt-empty' }, [
+          el('div', { style: { marginBottom: '12px' } }, 'No cards yet.'),
+          el('button', {
+            class: 'text-btn primary',
+            onClick: () => addProjectTaskAndEdit(proj),
+          }, '+ Add task'),
+        ]));
         return;
       }
       const q = projectFilterQuery.trim().toLowerCase();
@@ -7885,6 +8088,34 @@
       });
 
       body.appendChild(el('table', { class: 'project-table' }, [thead, tbody]));
+
+      // Inline add-task row at the bottom of the table
+      body.appendChild(el('button', {
+        class: 'pt-add-row',
+        onClick: () => addProjectTaskAndEdit(proj),
+      }, '+ Add task'));
+    }
+
+    // Create a blank card in the project's first non-Done column and immediately
+    // open the edit modal so the user can fill in details + attachments.
+    function addProjectTaskAndEdit(proj) {
+      if (!proj.columns || proj.columns.length === 0) return;
+      const firstNonDone = proj.columns.find(col => !isDoneColumn(proj, col.id)) || proj.columns[0];
+      const id = uid('card');
+      setState(s => {
+        const pos = s.cards.filter(c => c.project_id === proj.id && c.column_id === firstNonDone.id && !c.archived).length;
+        s.cards.push({
+          id, project_id: proj.id, column_id: firstNonDone.id, position: pos,
+          title: 'New task', notes: '', due: null,
+          today_slot: null, today_position: 0, plan_date: null,
+          context: proj.context || null, done_at: null, archived: false,
+          recurrence: null, created_at: now(),
+        });
+        logActivity('card_created', 'Added task in ' + proj.name, { project_id: proj.id, source_type: 'card', source_id: id, context: proj.context });
+      });
+      soundAdd();
+      // Open the edit modal so the user can rename + attach files in one flow
+      setTimeout(() => openCardEditModal(id), 50);
     }
 
     function columnEl(proj, col) {
