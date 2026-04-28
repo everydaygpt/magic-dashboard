@@ -1019,6 +1019,28 @@
     .bank-card-meta .due-pill.overdue { color: #f87171; background: rgba(248, 113, 113, 0.08); }
     .bank-card-meta .due-pill.today { color: #fbbf24; background: rgba(251, 191, 36, 0.1); }
     .bank-card-meta .rec-pill { padding: 1px 6px; border-radius: 4px; background: rgba(124, 58, 237, 0.12); color: #c4b5fd; }
+    .bank-card-meta .attach-pill { padding: 1px 6px; border-radius: 4px; background: rgba(96, 165, 250, 0.12); color: #93c5fd; }
+    html[data-theme="personal"] .bank-card-meta .attach-pill { background: rgba(37, 99, 235, 0.12); color: #1d4ed8; }
+    html[data-theme="personal"] .bank-card-meta .rec-pill { background: rgba(124, 58, 237, 0.12); color: #6d28d9; }
+    .card-files-wrap { display: flex; flex-direction: column; }
+    .card-files-list {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      min-height: 44px;
+      padding: 8px 10px;
+      background: var(--surface-sub);
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+      align-items: center;
+      transition: border-color 120ms var(--ease), background 120ms var(--ease);
+    }
+    .card-files-list.drag-over {
+      border-color: var(--accent-from);
+      background: var(--card-hover);
+    }
+    .card-files-empty {
+      width: 100%; text-align: center;
+      color: var(--text-tertiary); font-size: 12px; font-style: italic;
+    }
     .bank-empty {
       padding: 16px 14px; color: var(--text-tertiary);
       font-size: 12px; font-style: italic; text-align: center;
@@ -3952,7 +3974,11 @@
     }
 
     function deleteCard(id) {
-      setState(s => { s.cards = s.cards.filter(c => c.id !== id); });
+      setState(s => {
+        s.cards = s.cards.filter(c => c.id !== id);
+        // Clean up any files attached to this card
+        s.files = s.files.filter(f => !(f.owner_type === 'card' && f.owner_id === id));
+      });
       if (expandedCardId === id) expandedCardId = null;
     }
 
@@ -5137,6 +5163,10 @@
       if (c.missed_count) {
         pills.push(el('span', { class: 'due-pill overdue', title: 'Last missed ' + (c.last_missed_at || '') }, 'Missed × ' + c.missed_count));
       }
+      const fileCount = filesForOwner('card', c.id).length;
+      if (fileCount > 0) {
+        pills.push(el('span', { class: 'attach-pill', title: fileCount + ' attachment' + (fileCount === 1 ? '' : 's') }, '📎 ' + fileCount));
+      }
       if (pills.length) body.appendChild(el('div', { class: 'bank-card-meta' }, pills));
       return node;
     }
@@ -5384,6 +5414,8 @@
         durationInput,
         el('div', { class: 'modal-label', style: { marginTop: '10px' } }, 'Subtasks'),
         subtaskSectionEl(cardId),
+        el('div', { class: 'modal-label', style: { marginTop: '10px' } }, 'Attachments'),
+        cardFilesSectionEl(cardId),
         el('div', { class: 'modal-actions' }, [
           el('button', { class: 'danger', onClick: del }, 'Delete'),
           el('div', { style: { flex: 1 } }),
@@ -5392,6 +5424,50 @@
         ]),
       ]);
       setTimeout(() => titleInput.focus(), 50);
+    }
+
+    // Card attachments — files attached directly to a card (owner_type='card')
+    function cardFilesSectionEl(cardId) {
+      const wrap = el('div', { class: 'card-files-wrap' });
+
+      const rebuild = () => {
+        clearNode(wrap);
+        const files = filesForOwner('card', cardId);
+        const list = el('div', { class: 'card-files-list' });
+        if (files.length === 0) {
+          list.appendChild(el('div', { class: 'card-files-empty' }, 'No attachments. Drop files here or click + to pick.'));
+        } else {
+          files.forEach(f => list.appendChild(fileChipEl(f)));
+        }
+        wrap.appendChild(list);
+
+        // File picker button
+        const fileInput = el('input', {
+          type: 'file', multiple: true,
+          style: { display: 'none' },
+        });
+        fileInput.addEventListener('change', () => {
+          for (const f of fileInput.files) addFile('card', cardId, f);
+          fileInput.value = '';
+          setTimeout(rebuild, 50);
+        });
+        const pickBtn = el('button', {
+          class: 'text-btn',
+          style: { marginTop: '6px' },
+          onClick: () => fileInput.click(),
+        }, '+ Attach files');
+        wrap.appendChild(pickBtn);
+        wrap.appendChild(fileInput);
+
+        // Drag-drop zone (re-attach each rebuild)
+        setupFileDrop(list, 'card', cardId);
+        // Rebuild after drop happens — setupFileDrop calls addFile but we need UI refresh
+        const origDrop = list.ondrop;
+        list.addEventListener('drop', () => setTimeout(rebuild, 80), { once: true });
+      };
+
+      rebuild();
+      return wrap;
     }
 
     // ---------- Main ----------
@@ -7952,6 +8028,10 @@
         if (c.subtasks && c.subtasks.length) {
           const { done, total } = countSubtaskProgress(c.subtasks);
           footer.appendChild(el('div', { class: 'card-pill', title: done + ' of ' + total + ' subtasks complete' }, '☑ ' + done + ' / ' + total));
+        }
+        const fileCount = filesForOwner('card', c.id).length;
+        if (fileCount > 0) {
+          footer.appendChild(el('div', { class: 'card-pill', title: fileCount + ' attachment' + (fileCount === 1 ? '' : 's') }, '📎 ' + fileCount));
         }
         node.appendChild(footer);
         return node;
