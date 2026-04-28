@@ -4286,10 +4286,37 @@
     }
     function deleteNote(id) { setState(s => { s.notes = s.notes.filter(n => n.id !== id); }); }
 
+    // Per-file cap. localStorage maxes around 5–10MB; data-URL encoding adds ~33%.
+    // 2MB keeps us well under the cap and friendly with the GitHub Gist sync ceiling.
+    const FILE_BYTES_LIMIT = 2 * 1024 * 1024;
+
     function addFile(ot, oi, f) {
-      setState(s => {
-        s.files.push({ id: uid('file'), owner_type: ot, owner_id: oi, name: f.name, size: f.size, ext: extOf(f.name), added_at: now() });
-      });
+      const meta = { id: uid('file'), owner_type: ot, owner_id: oi, name: f.name, size: f.size, ext: extOf(f.name), added_at: now() };
+      // Read file content as a data URL for files within the size cap. Larger files
+      // get metadata-only (with a clear message in the preview).
+      if (f.size <= FILE_BYTES_LIMIT && typeof FileReader !== 'undefined' && f instanceof Blob) {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          meta.data = ev.target.result;
+          meta.mime = f.type || '';
+          try {
+            setState(s => { s.files.push(meta); });
+          } catch (err) {
+            // Storage quota likely exceeded — fall back to metadata-only
+            console.warn('File too big to persist with bytes; saving metadata only', err);
+            delete meta.data;
+            setState(s => { s.files.push(meta); });
+            alert('Stored "' + f.name + '" as a reference — your local storage is too full to keep the bytes.');
+          }
+        };
+        reader.onerror = () => {
+          setState(s => { s.files.push(meta); });
+        };
+        reader.readAsDataURL(f);
+      } else {
+        // Object literals from sample data (no Blob), or files over the cap → metadata only
+        setState(s => { s.files.push(meta); });
+      }
     }
     function deleteFile(id) { setState(s => { s.files = s.files.filter(f => f.id !== id); }); }
 
@@ -10116,15 +10143,48 @@
     }
 
     function openFilePreviewModal(f) {
+      const isImage = f.data && /^data:image\//.test(f.data);
+      const isPdf = f.data && /^data:application\/pdf/.test(f.data);
+      const isText = f.data && /^data:text\//.test(f.data);
+      const previewBox = el('div', { class: 'file-preview-box' });
+      if (isImage) {
+        previewBox.appendChild(el('img', { src: f.data, alt: f.name, style: { maxWidth: '100%', maxHeight: '60vh', borderRadius: '8px' } }));
+      } else if (isPdf || isText) {
+        previewBox.appendChild(el('iframe', {
+          src: f.data,
+          style: { width: '100%', height: '60vh', border: '1px solid var(--border)', borderRadius: '8px', background: '#fff' },
+        }));
+      } else if (f.data) {
+        previewBox.appendChild(el('div', {
+          style: { padding: '20px', textAlign: 'center', color: 'var(--text-tertiary)', fontStyle: 'italic' },
+        }, 'No inline preview for this file type. Use Download to open it.'));
+      } else {
+        previewBox.appendChild(el('div', {
+          style: { padding: '20px', textAlign: 'center', color: 'var(--text-tertiary)', fontStyle: 'italic' },
+        }, 'Metadata only — file bytes weren\'t stored (file too large or read failed).'));
+      }
+      const downloadBtn = f.data
+        ? el('a', {
+            href: f.data,
+            download: f.name,
+            class: 'text-btn primary',
+            style: { textDecoration: 'none' },
+          }, '↓ Download')
+        : null;
       openModal([
         el('h3', {}, f.name),
-        el('div', { style: { fontFamily: 'JetBrains Mono, monospace', fontSize: '12px', color: 'var(--text-secondary)' } }, [
+        el('div', { style: { fontFamily: 'JetBrains Mono, monospace', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' } }, [
           el('div', {}, 'Extension: .' + f.ext),
           el('div', {}, 'Size: ' + formatSize(f.size)),
           el('div', {}, 'Added: ' + new Date(f.added_at).toLocaleString()),
+          f.data ? el('div', { style: { color: '#22c55e' } }, '✓ Bytes stored locally') : null,
         ]),
-        el('p', { style: { marginTop: '12px', fontStyle: 'italic' } }, 'Prototype: metadata only. Bytes are not stored.'),
-        el('div', { class: 'modal-actions' }, [el('button', { class: 'primary', onClick: closeModal }, 'Close')]),
+        previewBox,
+        el('div', { class: 'modal-actions' }, [
+          downloadBtn,
+          el('div', { style: { flex: 1 } }),
+          el('button', { class: 'primary', onClick: closeModal }, 'Close'),
+        ]),
       ]);
     }
 
