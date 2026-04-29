@@ -9055,6 +9055,47 @@
       return bestScore >= 0.5 ? { card: best, score: bestScore } : null;
     }
 
+    // Parse "TASK at 9:30am" / "9am TASK" / "TASK 14:30" — extracts a time if present.
+    // Returns { text, time: { h, m } | null }. Bare numbers without minutes or am/pm
+    // are NOT treated as times (too ambiguous).
+    function parseLineWithTime(line) {
+      // Strip list markers but NOT leading digits (they could be the hour of a time)
+      let text = (line || '').replace(/^(?:[\-\*•>]+|\d{1,2}[.\)])\s+/, '').trim();
+      if (!text) return { text: '', time: null };
+      const apply = (h, mm, ap) => {
+        h = parseInt(h, 10);
+        const m = mm ? parseInt(mm, 10) : 0;
+        if (!mm && !ap) return null;
+        if (isNaN(h) || h > 23 || m > 59) return null;
+        if (ap) {
+          const apl = ap.toLowerCase();
+          if ((apl === 'p' || apl === 'pm') && h < 12) h += 12;
+          if ((apl === 'a' || apl === 'am') && h === 12) h = 0;
+        }
+        return { h, m };
+      };
+      // Time at end (with optional separator: @, at, by, dash)
+      let m = text.match(/^(.+?)\s+(?:[@\-—–]\s*|at\s+|by\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm|a|p)?\s*\.?\s*$/i);
+      if (m) {
+        const t = apply(m[2], m[3], m[4]);
+        if (t && m[1].trim()) return { text: m[1].trim(), time: t };
+      }
+      // Time at start
+      m = text.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm|a|p)?\s+(?:[\-—–]\s+)?(.+)$/i);
+      if (m) {
+        const t = apply(m[1], m[2], m[3]);
+        if (t && m[4].trim()) return { text: m[4].trim(), time: t };
+      }
+      return { text, time: null };
+    }
+
+    function formatLogTime(t) {
+      if (!t) return '';
+      const d = new Date();
+      d.setHours(t.h, t.m, 0, 0);
+      return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    }
+
     function openProjectBulkLogModal(proj) {
       const candidates = state.cards.filter(c => c.project_id === proj.id && !c.archived && !c.done_at);
       const doneCol = proj.columns.find(col => /done|complete|finished|shipped/i.test(col.name));
@@ -9062,7 +9103,7 @@
 
       const textarea = el('textarea', {
         rows: 10,
-        placeholder: 'Set up the Azure AD app\nSent welcome email to new hire\nUpdated the README\nReviewed Q3 budget',
+        placeholder: 'Set up the Azure AD app at 8:30am\n9:15 Sent welcome email to new hire\nUpdated the README @ 11am\nReviewed Q3 budget — 2:30pm\nNo time? Defaults to right now.',
         style: {
           width: '100%', minHeight: '180px',
           fontFamily: 'inherit', fontSize: '13px', lineHeight: '1.55',
@@ -9132,6 +9173,12 @@
           node.appendChild(tag);
           const body = el('div', { style: { flex: '1', minWidth: '0' } });
           body.appendChild(el('div', {}, r.text));
+          // Time chip — show parsed completion time if any
+          if (r.time) {
+            body.appendChild(el('div', {
+              style: { fontSize: '10px', color: '#22c55e', fontFamily: 'JetBrains Mono, monospace', marginTop: '2px' },
+            }, '🕓 ' + formatLogTime(r.time)));
+          }
           if (isMatch) {
             body.appendChild(el('div', {
               style: { fontSize: '10px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', marginTop: '2px' },
@@ -9149,13 +9196,15 @@
 
       const updateFromText = () => {
         const lines = textarea.value.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-        // Drop list markers if present
-        const cleaned = lines.map(l => l.replace(/^[\-\*•>\d.\)\]]+\s*/, '').trim()).filter(Boolean);
-        rows = cleaned.map(text => ({
-          text,
-          match: findBestCardMatch(text, candidates),
-          skip: false,
-        }));
+        rows = lines.map(line => {
+          const { text, time } = parseLineWithTime(line);
+          return {
+            text,
+            time,
+            match: findBestCardMatch(text, candidates),
+            skip: false,
+          };
+        }).filter(r => r.text);
         renderPreview();
       };
 
@@ -9167,25 +9216,45 @@
         if (!confirm('Apply ' + active.length + ' completion' + (active.length === 1 ? '' : 's') + ' to ' + proj.name + '?')) return;
 
         setState(s => {
+          const todayStr = todayISO();
+          // Builds an ISO done_at + scheduled_time pair. If r.time given, anchors to today + that time;
+          // otherwise uses now().
+          const stampFor = (r) => {
+            if (r.time) {
+              const hh = String(r.time.h).padStart(2, '0');
+              const mm = String(r.time.m).padStart(2, '0');
+              const localISO = todayStr + 'T' + hh + ':' + mm + ':00';
+              // done_at is a real timestamp (with TZ); use the local time interpreted in the local zone
+              const d = new Date();
+              d.setHours(r.time.h, r.time.m, 0, 0);
+              return { done_at: d.toISOString(), scheduled_time: localISO };
+            }
+            const d = new Date();
+            const hh = String(d.getHours()).padStart(2, '0');
+            const mm = String(d.getMinutes()).padStart(2, '0');
+            return { done_at: now(), scheduled_time: todayStr + 'T' + hh + ':' + mm + ':00' };
+          };
           // Track which existing cards have been matched in this batch (avoid double-matching)
           const usedIds = new Set();
           active.forEach(r => {
+            const stamp = stampFor(r);
             if (r.match && !usedIds.has(r.match.card.id)) {
               usedIds.add(r.match.card.id);
               const c = s.cards.find(x => x.id === r.match.card.id);
               if (!c) return;
+              c.done_at = stamp.done_at;
+              if (!c.scheduled_time) {
+                c.scheduled_time = stamp.scheduled_time;
+                c._auto_scheduled = true;
+                if (!c.duration_minutes) c.duration_minutes = 15;
+              }
               if (doneCol) {
-                // Move to Done column AND set done_at (matches handleCardDrop semantics)
                 c.column_id = doneCol.id;
                 c.position = s.cards.filter(x => x.project_id === proj.id && x.column_id === doneCol.id).length;
-                c.done_at = now();
-                logActivity('card_done', 'Completed "' + c.title + '"', { project_id: proj.id, source_type: 'card', source_id: c.id, context: proj.context });
               } else {
-                // No Done column — archive with done_at
-                c.done_at = now();
                 c.archived = true;
-                logActivity('card_done', 'Completed "' + c.title + '"', { project_id: proj.id, source_type: 'card', source_id: c.id, context: proj.context });
               }
+              logActivity('card_done', 'Completed "' + c.title + '"', { project_id: proj.id, source_type: 'card', source_id: c.id, context: proj.context });
             } else {
               // Create new card already done
               const targetCol = doneCol || proj.columns[proj.columns.length - 1];
@@ -9199,10 +9268,13 @@
                 due: null,
                 today_slot: null, today_position: 0, plan_date: null,
                 context: proj.context,
-                done_at: now(),
+                done_at: stamp.done_at,
                 archived: !doneCol,
                 recurrence: null,
                 created_at: now(),
+                scheduled_time: stamp.scheduled_time,
+                duration_minutes: 15,
+                _auto_scheduled: true,
                 source: { kind: 'bulk-log' },
               };
               s.cards.push(card);
@@ -9214,9 +9286,10 @@
         closeModal();
       });
 
-      const subhead = doneColName
-        ? 'Cards will move to "' + doneColName + '" or be created there.'
-        : 'No "Done" column found — completions will be archived.';
+      const subhead = (doneColName
+        ? 'Cards will move to "' + doneColName + '" or be created there. '
+        : 'No "Done" column found — completions will be archived. ')
+        + 'Add a time anywhere on the line ("at 9:30am", "9am ...", "... — 2:30pm") to stamp completion time; otherwise defaults to now.';
 
       openModal([
         el('h3', {}, 'Bulk log completions · ' + proj.name),
