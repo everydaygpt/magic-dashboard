@@ -1684,6 +1684,98 @@
     }
     .book-quote-del:hover { background: var(--overlay); color: var(--danger); }
 
+    /* ---------- Email suggestions tray (triage agent ingest) ---------- */
+    .email-tray {
+      width: 100%;
+      max-width: 1700px;
+      margin: 0 auto 18px;
+      padding: 14px 16px 16px;
+      background: linear-gradient(135deg, rgba(96, 165, 250, 0.08), rgba(59, 130, 246, 0.05));
+      border: 1px solid rgba(96, 165, 250, 0.3);
+      border-left: 4px solid #60a5fa;
+      border-radius: var(--radius-panel);
+    }
+    .email-tray-head {
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 12px;
+    }
+    .email-tray-icon { font-size: 16px; }
+    .email-tray-title {
+      font-size: 13px; font-weight: 600;
+      letter-spacing: 0.04em; text-transform: uppercase;
+      color: var(--text-secondary);
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .email-tray-count {
+      padding: 1px 8px;
+      border-radius: 10px;
+      background: #60a5fa;
+      color: white;
+      font-size: 11px; font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .email-tray-list { display: flex; flex-direction: column; gap: 8px; }
+    .email-suggestion {
+      display: flex; gap: 12px; align-items: flex-start;
+      padding: 10px 12px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      transition: border-color 120ms var(--ease), background 120ms var(--ease);
+    }
+    .email-suggestion:hover { border-color: var(--border-strong); background: var(--card-hover); }
+    .email-suggestion-confidence {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      margin-top: 6px;
+    }
+    .email-suggestion-confidence.high { background: #22c55e; box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.15); }
+    .email-suggestion-confidence.mid  { background: #eab308; box-shadow: 0 0 0 3px rgba(234, 179, 8, 0.15); }
+    .email-suggestion-confidence.low  { background: #ef4444; box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15); }
+    .email-suggestion-confidence.unknown { background: var(--text-tertiary); opacity: 0.5; }
+    .email-suggestion-body { flex: 1; min-width: 0; }
+    .email-suggestion-action {
+      font-size: 14px; font-weight: 500;
+      color: var(--text-primary);
+      line-height: 1.4;
+    }
+    .email-suggestion-meta {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      margin-top: 4px;
+      font-size: 11px; color: var(--text-tertiary);
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .email-suggestion-from { color: var(--text-secondary); }
+    .email-suggestion-subj { font-style: italic; }
+    .email-suggestion-due { color: #f59e0b; }
+    .email-suggestion-excerpt {
+      margin-top: 6px;
+      padding: 6px 10px;
+      background: var(--surface-sub);
+      border-left: 2px solid var(--border);
+      border-radius: 4px;
+      font-size: 12px;
+      color: var(--text-secondary);
+      font-style: italic;
+      line-height: 1.45;
+      max-height: 60px;
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      text-overflow: ellipsis;
+    }
+    .email-suggestion-actions {
+      display: flex; align-items: center; gap: 4px;
+      flex-shrink: 0;
+    }
+    .email-suggestion-actions .icon-btn,
+    .email-suggestion-actions .text-btn {
+      padding: 4px 10px;
+      font-size: 12px;
+    }
+
     /* ---------- Quote of the day — full-width strip above Today's body ---------- */
     .today-quote {
       display: flex; gap: 16px;
@@ -3445,6 +3537,7 @@
         ],
         books: [],
         quotes: [],
+        email_suggestions: [],
         ui: {
           active_view: projId, theme: 'dark', context_filter: 'all',
           banner_dismissed: {}, collapsed_sections: {}, calendar_sources: [],
@@ -3664,6 +3757,23 @@
         id: q.id, book_id: q.book_id || null,
         text: q.text || '', page: q.page || '',
         created_at: q.created_at || now(),
+      }));
+      // Email suggestions — written by the external triage agent into the synced gist.
+      // Each entry is one extracted action item from a recent email; user accepts → card, dismisses → ignored.
+      s.email_suggestions = (s.email_suggestions || []).map(sg => ({
+        id: sg.id || uid('sug'),
+        source: sg.source || 'outlook',
+        from_name: sg.from_name || '',
+        from_email: sg.from_email || '',
+        subject: sg.subject || '',
+        extracted_action: sg.extracted_action || '',
+        confidence: typeof sg.confidence === 'number' ? sg.confidence : null,
+        suggested_due: sg.suggested_due || null,
+        raw_excerpt: sg.raw_excerpt || '',
+        email_url: sg.email_url || '',
+        created_at: sg.created_at || now(),
+        status: ['pending', 'accepted', 'dismissed'].includes(sg.status) ? sg.status : 'pending',
+        accepted_card_id: sg.accepted_card_id || null,
       }));
       s.goals = (s.goals || []).map(g => ({
         id: g.id, title: g.title,
@@ -4614,13 +4724,16 @@
           } else {
             c.archived = true;
             // If not already scheduled, stamp completion onto today's schedule
+            // at the EXACT moment of completion (no 15-min rounding) so it
+            // reflects when the user actually finished. 15-min default duration
+            // — it's a completion marker, not a planned work block.
             if (!c.scheduled_time) {
               const n = new Date();
               const hh = String(n.getHours()).padStart(2, '0');
-              const mm = String(Math.floor(n.getMinutes() / 15) * 15).padStart(2, '0');
+              const mm = String(n.getMinutes()).padStart(2, '0');
               c.scheduled_time = todayISO() + 'T' + hh + ':' + mm + ':00';
               c._auto_scheduled = true;
-              if (!c.duration_minutes) c.duration_minutes = 30;
+              if (!c.duration_minutes) c.duration_minutes = 15;
             }
           }
         }
@@ -5978,6 +6091,11 @@
 
         cmd.appendChild(leftCol);
         cmd.appendChild(rightCol);
+
+        // Email suggestions tray — only when triage agent has pending items.
+        // Sits above the daily quote so action items are the first thing you see.
+        const tray = renderEmailSuggestionsTray();
+        if (tray) body.appendChild(tray);
 
         // Daily quote — full-width strip above the 2-column body, first thing seen on Today
         const dailyQuote = pickDailyQuote();
@@ -7418,6 +7536,123 @@
       const q = quotes[idx];
       const book = (state.books || []).find(b => b.id === q.book_id);
       return { quote: q, book };
+    }
+
+    // ---------- Email suggestions (triage agent ingest) ----------
+    function pendingEmailSuggestions() {
+      return (state.email_suggestions || []).filter(s => s.status === 'pending');
+    }
+
+    function acceptEmailSuggestion(sugId, opts) {
+      opts = opts || {};
+      setState(s => {
+        const sug = (s.email_suggestions || []).find(x => x.id === sugId);
+        if (!sug) return;
+        const card = {
+          id: uid('card'),
+          project_id: opts.project_id || 'inbox',
+          column_id: opts.column_id || null,
+          position: s.cards.filter(c => c.project_id === (opts.project_id || 'inbox')).length,
+          title: sug.extracted_action || sug.subject || '(untitled)',
+          notes: [
+            sug.from_name || sug.from_email ? 'From: ' + (sug.from_name || sug.from_email) : '',
+            sug.subject ? 'Subject: ' + sug.subject : '',
+            sug.raw_excerpt || '',
+            sug.email_url ? '\n' + sug.email_url : '',
+          ].filter(Boolean).join('\n'),
+          due: sug.suggested_due || null,
+          today_slot: null, today_position: 0, plan_date: null,
+          context: 'work',
+          done_at: null, archived: false,
+          recurrence: null,
+          created_at: now(),
+          source: { kind: 'email', sug_id: sug.id, source: sug.source },
+          subtasks: [],
+        };
+        s.cards.push(card);
+        sug.status = 'accepted';
+        sug.accepted_card_id = card.id;
+        logActivity('card_created', 'Accepted email suggestion: "' + card.title + '"', { source_type: 'card', source_id: card.id, context: 'work' });
+      });
+      setTimeout(soundAdd, 0);
+    }
+
+    function dismissEmailSuggestion(sugId) {
+      setState(s => {
+        const sug = (s.email_suggestions || []).find(x => x.id === sugId);
+        if (sug) sug.status = 'dismissed';
+      });
+    }
+
+    function renderEmailSuggestionsTray() {
+      const pending = pendingEmailSuggestions();
+      if (pending.length === 0) return null;
+
+      const tray = el('div', { class: 'email-tray' });
+      tray.appendChild(el('div', { class: 'email-tray-head' }, [
+        el('span', { class: 'email-tray-icon' }, '📧'),
+        el('span', { class: 'email-tray-title' }, 'Email suggestions'),
+        el('span', { class: 'email-tray-count' }, String(pending.length)),
+        el('div', { style: { flex: 1 } }),
+        el('button', {
+          class: 'text-btn',
+          title: 'Add all pending suggestions to the Bank',
+          onClick: () => {
+            if (!confirm('Add all ' + pending.length + ' suggestions as tasks?')) return;
+            pending.forEach(s => acceptEmailSuggestion(s.id));
+          },
+        }, '+ Add all'),
+        el('button', {
+          class: 'text-btn',
+          title: 'Dismiss everything',
+          onClick: () => {
+            if (!confirm('Skip all ' + pending.length + ' suggestions?')) return;
+            pending.forEach(s => dismissEmailSuggestion(s.id));
+          },
+        }, '× Skip all'),
+      ]));
+
+      const list = el('div', { class: 'email-tray-list' });
+      pending.forEach(sug => list.appendChild(emailSuggestionRowEl(sug)));
+      tray.appendChild(list);
+      return tray;
+    }
+
+    function emailSuggestionRowEl(sug) {
+      const conf = typeof sug.confidence === 'number' ? sug.confidence : null;
+      const confClass = conf == null ? 'unknown' : conf >= 0.75 ? 'high' : conf >= 0.5 ? 'mid' : 'low';
+      const confLabel = conf == null ? '' : Math.round(conf * 100) + '%';
+      const sender = sug.from_name || sug.from_email || sug.source || '';
+      return el('div', { class: 'email-suggestion' }, [
+        el('div', { class: 'email-suggestion-confidence ' + confClass, title: confLabel ? 'Confidence: ' + confLabel : 'Unknown confidence' }),
+        el('div', { class: 'email-suggestion-body' }, [
+          el('div', { class: 'email-suggestion-action' }, sug.extracted_action || sug.subject || '(untitled)'),
+          el('div', { class: 'email-suggestion-meta' }, [
+            sender ? el('span', { class: 'email-suggestion-from' }, sender) : null,
+            sug.subject && sug.extracted_action !== sug.subject ? el('span', { class: 'email-suggestion-subj' }, '· ' + sug.subject) : null,
+            sug.suggested_due ? el('span', { class: 'email-suggestion-due' }, '· ' + (sug.suggested_due === 'today' ? 'Today' : sug.suggested_due === 'tomorrow' ? 'Tomorrow' : sug.suggested_due) ) : null,
+          ]),
+          sug.raw_excerpt ? el('div', { class: 'email-suggestion-excerpt' }, sug.raw_excerpt) : null,
+        ]),
+        el('div', { class: 'email-suggestion-actions' }, [
+          sug.email_url ? el('a', {
+            class: 'icon-btn',
+            href: sug.email_url, target: '_blank', rel: 'noopener',
+            title: 'Open original email',
+            onClick: (e) => e.stopPropagation(),
+          }, '↗') : null,
+          el('button', {
+            class: 'text-btn',
+            title: 'Skip this suggestion',
+            onClick: () => dismissEmailSuggestion(sug.id),
+          }, '× Skip'),
+          el('button', {
+            class: 'text-btn primary',
+            title: 'Add to Bank as a task',
+            onClick: () => acceptEmailSuggestion(sug.id),
+          }, '+ Add'),
+        ]),
+      ]);
     }
 
     function renderBooksView(header, body) {
