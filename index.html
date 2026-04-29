@@ -9055,14 +9055,13 @@
       return bestScore >= 0.5 ? { card: best, score: bestScore } : null;
     }
 
-    // Parse "TASK at 9:30am" / "9am TASK" / "TASK 14:30" — extracts a time if present.
-    // Returns { text, time: { h, m } | null }. Bare numbers without minutes or am/pm
-    // are NOT treated as times (too ambiguous).
+    // Parse "TASK — 4/27/2026 9:30am" / "TASK at 9:30am" / "9am TASK"
+    // Returns { text, time: { h, m } | null, date: { y, m, d } | null }.
+    // Bare numbers without minutes or am/pm are NOT treated as times (too ambiguous).
     function parseLineWithTime(line) {
-      // Strip list markers but NOT leading digits (they could be the hour of a time)
       let text = (line || '').replace(/^(?:[\-\*•>]+|\d{1,2}[.\)])\s+/, '').trim();
-      if (!text) return { text: '', time: null };
-      const apply = (h, mm, ap) => {
+      if (!text) return { text: '', time: null, date: null };
+      const applyTime = (h, mm, ap) => {
         h = parseInt(h, 10);
         const m = mm ? parseInt(mm, 10) : 0;
         if (!mm && !ap) return null;
@@ -9074,26 +9073,55 @@
         }
         return { h, m };
       };
-      // Time at end (with optional separator: @, at, by, dash)
-      let m = text.match(/^(.+?)\s+(?:[@\-—–]\s*|at\s+|by\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm|a|p)?\s*\.?\s*$/i);
+      const applyDate = (mo, d, y) => {
+        mo = parseInt(mo, 10);
+        d = parseInt(d, 10);
+        if (!y) y = new Date().getFullYear();
+        else { y = parseInt(y, 10); if (y < 100) y += 2000; }
+        if (isNaN(mo) || mo < 1 || mo > 12) return null;
+        if (isNaN(d) || d < 1 || d > 31) return null;
+        if (isNaN(y) || y < 1970 || y > 2100) return null;
+        return { y, m: mo, d };
+      };
+
+      // "TASK [— | at | @ | by | on] M/D[/YYYY] TIME"
+      let m = text.match(/^(.+?)\s+(?:[@\-—–]\s*|at\s+|by\s+|on\s+)?(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm|a|p)?\s*\.?\s*$/i);
       if (m) {
-        const t = apply(m[2], m[3], m[4]);
-        if (t && m[1].trim()) return { text: m[1].trim(), time: t };
+        const t = applyTime(m[5], m[6], m[7]);
+        const d = applyDate(m[2], m[3], m[4]);
+        if (t && d && m[1].trim()) return { text: m[1].trim(), time: t, date: d };
       }
-      // Time at start
+      // "TASK [— | at | @ | by | on] YYYY-MM-DD TIME" (ISO date)
+      m = text.match(/^(.+?)\s+(?:[@\-—–]\s*|at\s+|by\s+|on\s+)?(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm|a|p)?\s*\.?\s*$/i);
+      if (m) {
+        const t = applyTime(m[5], m[6], m[7]);
+        const d = applyDate(m[3], m[4], m[2]);
+        if (t && d && m[1].trim()) return { text: m[1].trim(), time: t, date: d };
+      }
+      // Time-only: "TASK [— | at | @ | by] TIME" (today)
+      m = text.match(/^(.+?)\s+(?:[@\-—–]\s*|at\s+|by\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm|a|p)?\s*\.?\s*$/i);
+      if (m) {
+        const t = applyTime(m[2], m[3], m[4]);
+        if (t && m[1].trim()) return { text: m[1].trim(), time: t, date: null };
+      }
+      // "TIME TASK"
       m = text.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm|a|p)?\s+(?:[\-—–]\s+)?(.+)$/i);
       if (m) {
-        const t = apply(m[1], m[2], m[3]);
-        if (t && m[4].trim()) return { text: m[4].trim(), time: t };
+        const t = applyTime(m[1], m[2], m[3]);
+        if (t && m[4].trim()) return { text: m[4].trim(), time: t, date: null };
       }
-      return { text, time: null };
+      return { text, time: null, date: null };
     }
 
-    function formatLogTime(t) {
+    function formatLogTime(t, dt) {
       if (!t) return '';
-      const d = new Date();
-      d.setHours(t.h, t.m, 0, 0);
-      return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+      const d = dt
+        ? new Date(dt.y, dt.m - 1, dt.d, t.h, t.m, 0, 0)
+        : (() => { const x = new Date(); x.setHours(t.h, t.m, 0, 0); return x; })();
+      const isToday = d.toDateString() === new Date().toDateString();
+      const timeStr = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+      if (isToday) return timeStr;
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' · ' + timeStr;
     }
 
     function openProjectBulkLogModal(proj) {
@@ -9103,7 +9131,7 @@
 
       const textarea = el('textarea', {
         rows: 10,
-        placeholder: 'Set up the Azure AD app at 8:30am\n9:15 Sent welcome email to new hire\nUpdated the README @ 11am\nReviewed Q3 budget — 2:30pm\nNo time? Defaults to right now.',
+        placeholder: 'Set up the Azure AD app at 8:30am\nUpdated the README — 4/27/2026 11am\nReviewed Q3 budget — 4/28 2:30pm\nLunch with Mary on 2026-04-29 12:45pm\nNo date? Today. No time? Right now.',
         style: {
           width: '100%', minHeight: '180px',
           fontFamily: 'inherit', fontSize: '13px', lineHeight: '1.55',
@@ -9173,11 +9201,11 @@
           node.appendChild(tag);
           const body = el('div', { style: { flex: '1', minWidth: '0' } });
           body.appendChild(el('div', {}, r.text));
-          // Time chip — show parsed completion time if any
+          // Time chip — show parsed completion time (and date if not today) if any
           if (r.time) {
             body.appendChild(el('div', {
               style: { fontSize: '10px', color: '#22c55e', fontFamily: 'JetBrains Mono, monospace', marginTop: '2px' },
-            }, '🕓 ' + formatLogTime(r.time)));
+            }, '🕓 ' + formatLogTime(r.time, r.date)));
           }
           if (isMatch) {
             body.appendChild(el('div', {
@@ -9197,10 +9225,11 @@
       const updateFromText = () => {
         const lines = textarea.value.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
         rows = lines.map(line => {
-          const { text, time } = parseLineWithTime(line);
+          const { text, time, date } = parseLineWithTime(line);
           return {
             text,
             time,
+            date,
             match: findBestCardMatch(text, candidates),
             skip: false,
           };
@@ -9217,16 +9246,17 @@
 
         setState(s => {
           const todayStr = todayISO();
-          // Builds an ISO done_at + scheduled_time pair. If r.time given, anchors to today + that time;
-          // otherwise uses now().
+          // Builds an ISO done_at + scheduled_time pair anchored to r.date (or today)
+          // and r.time (or current time). scheduled_time is local-no-TZ format per
+          // the schedule's existing convention; done_at is a real ISO timestamp.
           const stampFor = (r) => {
             if (r.time) {
+              const dt = r.date || (() => { const x = new Date(); return { y: x.getFullYear(), m: x.getMonth() + 1, d: x.getDate() }; })();
+              const dateISO = String(dt.y) + '-' + String(dt.m).padStart(2, '0') + '-' + String(dt.d).padStart(2, '0');
               const hh = String(r.time.h).padStart(2, '0');
               const mm = String(r.time.m).padStart(2, '0');
-              const localISO = todayStr + 'T' + hh + ':' + mm + ':00';
-              // done_at is a real timestamp (with TZ); use the local time interpreted in the local zone
-              const d = new Date();
-              d.setHours(r.time.h, r.time.m, 0, 0);
+              const localISO = dateISO + 'T' + hh + ':' + mm + ':00';
+              const d = new Date(dt.y, dt.m - 1, dt.d, r.time.h, r.time.m, 0, 0);
               return { done_at: d.toISOString(), scheduled_time: localISO };
             }
             const d = new Date();
@@ -9289,7 +9319,7 @@
       const subhead = (doneColName
         ? 'Cards will move to "' + doneColName + '" or be created there. '
         : 'No "Done" column found — completions will be archived. ')
-        + 'Add a time anywhere on the line ("at 9:30am", "9am ...", "... — 2:30pm") to stamp completion time; otherwise defaults to now.';
+        + 'Add a date and/or time on each line ("4/27/2026 9:30am", "at 9:30am", "9am ...") and the schedule stamp matches. Defaults: today, now.';
 
       openModal([
         el('h3', {}, 'Bulk log completions · ' + proj.name),
