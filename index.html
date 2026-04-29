@@ -1793,6 +1793,21 @@
       .today-cmd { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; }
     }
     .today-col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+    /* Sticky Top 3 — keeps the priority slots visible while user scrolls the
+       Bank below, so they can drag a card from the bottom of the list onto
+       a Top 3 slot without losing them off-screen. Desktop only. */
+    @media (min-width: 1100px) {
+      .today-sticky-top {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        background: var(--panel);
+        padding-top: 6px;
+        padding-bottom: 12px;
+        margin-top: -6px;
+        margin-bottom: -6px;
+      }
+    }
     .today-panel {
       background: var(--panel);
       border: 1px solid var(--border);
@@ -3686,6 +3701,16 @@
       if (!s.ui.project_table_sort || typeof s.ui.project_table_sort !== 'object') s.ui.project_table_sort = { key: 'column', dir: 'asc' };
       // Lane field: 'me' = I'll do it, 'ai' = hand off to AI, null = uncategorized
       s.cards = (s.cards || []).map(c => ({ ...c, lane: c.lane === 'me' || c.lane === 'ai' ? c.lane : null }));
+      // Orphan rescue: cards whose project_id points to a deleted project get
+      // re-parented to inbox so they show up in the Bank instead of leaking
+      // into the priority picker as "Unknown" group.
+      const projIds = new Set((s.projects || []).map(p => p.id));
+      s.cards.forEach(c => {
+        if (c.project_id && c.project_id !== 'inbox' && !projIds.has(c.project_id)) {
+          c.project_id = 'inbox';
+          c.column_id = null;
+        }
+      });
       return s;
     }
 
@@ -5936,6 +5961,7 @@
         const leftCol = el('div', { class: 'today-col today-col-left' });
         const rightCol = el('div', { class: 'today-col today-col-right' });
 
+        top3Block.classList.add('today-sticky-top');
         leftCol.appendChild(top3Block);
         leftCol.appendChild(renderJustDidBlock());
         leftCol.appendChild(renderTodayBankPanel());
@@ -10292,6 +10318,9 @@
         const candidates = state.cards.filter(c => {
           if (c.archived || c.done_at) return false;
           if (!contextMatches(contextOf(c, 'card'))) return false;
+          // Defensive: skip orphans (project_id points to a deleted project).
+          // Migration normally re-parents these to 'inbox', but guard here too.
+          if (c.project_id && c.project_id !== 'inbox' && !projectById(c.project_id)) return false;
           if (q && !c.title.toLowerCase().includes(q)) return false;
           return true;
         });
@@ -10306,8 +10335,9 @@
           return;
         }
         order.forEach(key => {
-          const label = key === 'bank' ? 'Task Bank' : (projectById(key) && projectById(key).name) || 'Unknown';
-          const color = key === 'bank' ? null : projectById(key).accent;
+          const proj = key === 'bank' ? null : projectById(key);
+          const label = key === 'bank' ? 'Task Bank' : (proj && proj.name) || 'Unknown';
+          const color = proj ? proj.accent : null;
           listEl.appendChild(el('div', {
             class: 'picker-group-head',
             style: color ? { '--item-from': color.from, '--item-to': color.to } : {},
@@ -10317,12 +10347,17 @@
           ]));
           byGroup[key].forEach(c => {
             const already = !!c.today_slot;
+            const isScheduled = !!c.scheduled_time;
+            // Build hint chips so the user sees WHY a card might look unfamiliar
+            const hints = [];
+            if (already) hints.push(el('span', { class: 'picker-item-hint' }, 'In plan'));
+            else if (isScheduled) hints.push(el('span', { class: 'picker-item-hint', style: { color: 'var(--text-tertiary)' } }, 'Scheduled'));
             const item = el('div', {
               class: 'picker-item' + (already ? ' selected' : ''),
               onClick: () => { if (!already) { addCardToPlan(c.id, slot); closeModal(); } },
             }, [
               el('span', { class: 'picker-item-title' }, c.title),
-              already ? el('span', { class: 'picker-item-hint' }, 'In plan') : null,
+              ...hints,
             ]);
             listEl.appendChild(item);
           });
