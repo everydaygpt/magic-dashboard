@@ -4580,6 +4580,31 @@
         });
       });
     }
+    function countRestorableArchived() {
+      let n = 0;
+      state.cards.forEach(c => {
+        if (!c.archived || !c.done_at) return;
+        if (c.project_id === 'inbox' || !c.column_id) return;
+        const p = state.projects.find(x => x.id === c.project_id);
+        if (!p || !isDoneColumn(p, c.column_id)) return;
+        n++;
+      });
+      return n;
+    }
+    function restoreAllArchivedDone() {
+      let restored = 0;
+      setState(s => {
+        s.cards.forEach(c => {
+          if (!c.archived || !c.done_at) return;
+          if (c.project_id === 'inbox' || !c.column_id) return;
+          const p = s.projects.find(x => x.id === c.project_id);
+          if (!p || !isDoneColumn(p, c.column_id)) return;
+          c.archived = false;
+          restored++;
+        });
+      });
+      return restored;
+    }
 
     function addIdea(title, context, category) {
       const t = title.trim();
@@ -5640,6 +5665,30 @@
 
         el('div', { class: 'modal-label' }, 'Calendar sources'),
         renderCalendarSourcesSettingsEl(),
+
+        el('div', { class: 'modal-label' }, 'Archive'),
+        (() => {
+          const restorable = countRestorableArchived();
+          const totalArchived = state.cards.filter(c => c.archived).length;
+          const status = el('div', {
+            style: { fontSize: '11px', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-tertiary)', marginBottom: '8px' },
+          }, totalArchived
+            ? totalArchived + ' archived total · ' + restorable + ' restorable to a Done column'
+            : 'No archived cards.');
+          return el('div', { style: { marginBottom: '18px' } }, [
+            status,
+            el('p', { style: { fontSize: '12px' } }, 'Auto-archive on load is off. Use this to put completed cards back in their project’s Done column.'),
+            el('button', {
+              disabled: restorable === 0,
+              onClick: () => {
+                if (!confirm('Restore ' + restorable + ' archived card' + (restorable === 1 ? '' : 's') + ' to their project Done columns?')) return;
+                const n = restoreAllArchivedDone();
+                closeModal();
+                alert('Restored ' + n + ' card' + (n === 1 ? '' : 's') + '.');
+              },
+            }, '↺ Restore archived to Done columns'),
+          ]);
+        })(),
 
         el('div', { class: 'modal-label' }, 'Manual export / import'),
         el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '18px' } }, [
