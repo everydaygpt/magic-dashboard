@@ -1087,6 +1087,64 @@
     .bank-card-meta .attach-pill { padding: 1px 6px; border-radius: 4px; background: rgba(96, 165, 250, 0.12); color: #93c5fd; }
     html[data-theme="personal"] .bank-card-meta .attach-pill { background: rgba(37, 99, 235, 0.12); color: #1d4ed8; }
     html[data-theme="personal"] .bank-card-meta .rec-pill { background: rgba(124, 58, 237, 0.12); color: #6d28d9; }
+    /* Card links — chip list + inline add form */
+    .card-links-wrap { display: flex; flex-direction: column; gap: 6px; }
+    .card-links-list {
+      display: flex; flex-direction: column; gap: 4px;
+      padding: 8px 10px;
+      background: var(--surface-sub);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      min-height: 32px;
+    }
+    .card-links-empty {
+      color: var(--text-tertiary); font-size: 12px; font-style: italic;
+      text-align: center; padding: 4px;
+    }
+    .card-link-row {
+      display: flex; align-items: center; gap: 6px;
+      padding: 4px 8px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .card-link-anchor {
+      flex: 1; min-width: 0;
+      display: inline-flex; align-items: center; gap: 6px;
+      color: var(--text-secondary);
+      font-size: 12px;
+      text-decoration: none;
+      overflow: hidden;
+    }
+    .card-link-anchor:hover { color: var(--accent-from); text-decoration: underline; }
+    .card-link-anchor .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .card-link-del {
+      width: 22px; height: 22px;
+      background: transparent; border: 0; color: var(--text-tertiary);
+      border-radius: 4px; font-size: 14px; cursor: pointer; flex-shrink: 0;
+    }
+    .card-link-del:hover { background: var(--overlay); color: var(--danger); }
+    .card-link-add-row {
+      display: flex; gap: 6px;
+      padding: 6px 8px;
+      background: var(--surface-sub);
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+    }
+    .card-link-input-label, .card-link-input-url {
+      padding: 4px 8px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-primary);
+      font-size: 12px;
+      font-family: inherit;
+    }
+    .card-link-input-label { width: 32%; }
+    .card-link-input-url { flex: 1; min-width: 0; }
+    .card-link-input-label:focus, .card-link-input-url:focus { border-color: var(--accent-from); outline: none; }
+    .card-link-add-btn { padding: 4px 12px; flex-shrink: 0; font-size: 12px; }
+
     .card-files-wrap { display: flex; flex-direction: column; }
     .card-files-list {
       display: flex; flex-wrap: wrap; gap: 6px;
@@ -3805,6 +3863,13 @@
         duration_minutes: c.duration_minutes == null ? null : c.duration_minutes,
         scheduled_time: c.scheduled_time || null,
         subtasks: Array.isArray(c.subtasks) ? c.subtasks : [],
+        // Links: per-card list of { label, url } entries (separate from notes freeform text)
+        links: Array.isArray(c.links)
+          ? c.links.map(l => ({
+              label: typeof l.label === 'string' ? l.label.trim() : '',
+              url:   typeof l.url   === 'string' ? l.url.trim()   : '',
+            })).filter(l => l.url)
+          : [],
       }));
       s.activity_log = s.activity_log || [];
       s.notes = s.notes || [];
@@ -5876,6 +5941,81 @@
         ]),
       ]);
       setTimeout(() => titleInput.focus(), 50);
+    }
+
+    // Card links — list of { label, url } per card; rendered as a chip row plus an inline add form.
+    function cardLinksSectionEl(cardId) {
+      const wrap = el('div', { class: 'card-links-wrap' });
+      const rebuild = () => {
+        clearNode(wrap);
+        const c = state.cards.find(x => x.id === cardId);
+        const links = (c && Array.isArray(c.links)) ? c.links : [];
+        const list = el('div', { class: 'card-links-list' });
+        if (links.length === 0) {
+          list.appendChild(el('div', { class: 'card-links-empty' }, 'No links. Paste a URL below.'));
+        } else {
+          links.forEach((link, idx) => {
+            const display = link.label || link.url.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+            list.appendChild(el('div', { class: 'card-link-row' }, [
+              el('a', {
+                href: link.url, target: '_blank', rel: 'noopener',
+                class: 'card-link-anchor',
+                title: link.url,
+                onClick: (e) => e.stopPropagation(),
+              }, [el('span', {}, '🔗'), el('span', { class: 'truncate' }, display)]),
+              el('button', {
+                class: 'icon-btn card-link-del',
+                title: 'Remove this link',
+                onClick: (e) => {
+                  e.stopPropagation();
+                  setState(s => {
+                    const cc = s.cards.find(x => x.id === cardId);
+                    if (cc) cc.links.splice(idx, 1);
+                  });
+                  setTimeout(rebuild, 30);
+                },
+              }, '×'),
+            ]));
+          });
+        }
+        wrap.appendChild(list);
+
+        // Inline add form: label + url + add button
+        const labelInput = el('input', {
+          type: 'text', placeholder: 'Label (optional)',
+          class: 'card-link-input-label',
+          onClick: (e) => e.stopPropagation(),
+        });
+        const urlInput = el('input', {
+          type: 'url', placeholder: 'https://…',
+          class: 'card-link-input-url',
+          onClick: (e) => e.stopPropagation(),
+        });
+        const submit = () => {
+          const url = urlInput.value.trim();
+          if (!url) { urlInput.focus(); return; }
+          // Default to https:// if no scheme
+          const finalUrl = /^[a-z]+:\/\//i.test(url) ? url : 'https://' + url;
+          const label = labelInput.value.trim();
+          setState(s => {
+            const cc = s.cards.find(x => x.id === cardId);
+            if (!cc) return;
+            cc.links = cc.links || [];
+            cc.links.push({ label, url: finalUrl });
+          });
+          labelInput.value = ''; urlInput.value = '';
+          setTimeout(() => { rebuild(); urlInput.focus(); }, 30);
+        };
+        urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+        labelInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); urlInput.focus(); } });
+        const addBtn = el('button', {
+          class: 'text-btn primary card-link-add-btn',
+          onClick: (e) => { e.stopPropagation(); submit(); },
+        }, '+ Add');
+        wrap.appendChild(el('div', { class: 'card-link-add-row' }, [labelInput, urlInput, addBtn]));
+      };
+      rebuild();
+      return wrap;
     }
 
     // Card attachments — files attached directly to a card (owner_type='card')
@@ -8747,6 +8887,10 @@
         if (fileCount > 0) {
           footer.appendChild(el('div', { class: 'card-pill', title: fileCount + ' attachment' + (fileCount === 1 ? '' : 's') }, '📎 ' + fileCount));
         }
+        const linkCount = (Array.isArray(c.links) ? c.links : []).length;
+        if (linkCount > 0) {
+          footer.appendChild(el('div', { class: 'card-pill', title: linkCount + ' link' + (linkCount === 1 ? '' : 's') }, '🔗 ' + linkCount));
+        }
         node.appendChild(footer);
         return node;
       }
@@ -8851,6 +8995,24 @@
           el('button', { class: 'due-opt', onClick: (e) => { e.stopPropagation(); removeCardFromPlan(c.id); } }, 'Remove'),
         ]));
       }
+      // Links — per-card list of labeled URLs
+      node.appendChild(el('div', {
+        style: { fontSize: '10px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '10px 0 4px' },
+        onClick: (e) => e.stopPropagation(),
+      }, 'Links'));
+      const linksWrap = cardLinksSectionEl(c.id);
+      linksWrap.addEventListener('click', (e) => e.stopPropagation());
+      node.appendChild(linksWrap);
+
+      // Attachments — files (≤2MB persisted as data URLs)
+      node.appendChild(el('div', {
+        style: { fontSize: '10px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '10px 0 4px' },
+        onClick: (e) => e.stopPropagation(),
+      }, 'Attachments'));
+      const filesWrap = cardFilesSectionEl(c.id);
+      filesWrap.addEventListener('click', (e) => e.stopPropagation());
+      node.appendChild(filesWrap);
+
       node.appendChild(el('div', {
         style: { fontSize: '10px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '10px 0 4px' },
         onClick: (e) => e.stopPropagation(),
