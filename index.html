@@ -3351,6 +3351,361 @@
         && c.source.source_id === sourceId && c.source.event_id === eventId);
     }
 
+    // ---------- Microsoft Graph: Outlook inbox → tasks ----------
+    const MAIL_SCOPES = ['Mail.Read'];
+
+    async function inboxConnect() {
+      const es = state.ui.email_source;
+      if (!es.client_id) throw new Error('Set the client ID in Settings first.');
+      const inst = await getMsalInstance(es.client_id, es.tenant_id);
+      const result = await inst.loginPopup({ scopes: MAIL_SCOPES, prompt: 'select_account' });
+      if (!result || !result.account) throw new Error('Login cancelled');
+      setState(s => {
+        s.ui.email_source.account_id = result.account.homeAccountId;
+        s.ui.email_source.enabled = true;
+      });
+      return result.account.homeAccountId;
+    }
+    async function inboxGetToken() {
+      const es = state.ui.email_source;
+      if (!es.client_id) throw new Error('Set the client ID in Settings first.');
+      const inst = await getMsalInstance(es.client_id, es.tenant_id);
+      const account = es.account_id ? inst.getAccountByHomeId(es.account_id) : (inst.getAllAccounts()[0] || null);
+      if (!account) throw new Error('Not connected — click Connect in Settings → Inbox.');
+      try {
+        const r = await inst.acquireTokenSilent({ scopes: MAIL_SCOPES, account });
+        return r.accessToken;
+      } catch (e) {
+        const r = await inst.acquireTokenPopup({ scopes: MAIL_SCOPES, account });
+        return r.accessToken;
+      }
+    }
+    async function inboxDisconnect() {
+      const es = state.ui.email_source;
+      try {
+        const inst = await getMsalInstance(es.client_id, es.tenant_id);
+        const account = es.account_id ? inst.getAccountByHomeId(es.account_id) : null;
+        if (account && typeof inst.logoutPopup === 'function') {
+          await inst.logoutPopup({ account, postLogoutRedirectUri: window.location.origin + window.location.pathname });
+        }
+      } catch (e) { /* ignore — clear local state regardless */ }
+      setState(s => {
+        s.ui.email_source.account_id = '';
+        s.ui.email_source.enabled = false;
+      });
+    }
+    async function inboxFetchTagged() {
+      const es = state.ui.email_source;
+      const cat = es.category_name || 'Dashboard';
+      const token = await inboxGetToken();
+      const url = 'https://graph.microsoft.com/v1.0/me/messages'
+        + '?$filter=' + encodeURIComponent("categories/any(c: c eq '" + cat.replace(/'/g, "''") + "')")
+        + '&$top=50&$orderby=receivedDateTime desc'
+        + '&$select=id,subject,bodyPreview,from,toRecipients,receivedDateTime,categories,flag,webLink';
+      const res = await fetch(url, { headers: { 'Authorization': 'Bearer ' + token } });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error('Graph ' + res.status + ': ' + t.slice(0, 240));
+      }
+      const data = await res.json();
+      setState(s => { s.ui.email_source.last_synced_at = now(); });
+      return data.value || [];
+    }
+    function emailFromName(msg) {
+      const f = msg && msg.from && msg.from.emailAddress;
+      if (!f) return '';
+      return f.name || f.address || '';
+    }
+    function emailToCardDraft(msg, dueAt) {
+      const fromName = emailFromName(msg);
+      const preview = (msg.bodyPreview || '').trim();
+      const lines = [];
+      if (fromName) lines.push('From ' + fromName);
+      if (msg.webLink) lines.push(msg.webLink);
+      if (preview) lines.push('', preview);
+      return {
+        title: msg.subject || '(no subject)',
+        notes: lines.join('\n'),
+        project_id: 'inbox',
+        column_id: null,
+        due: dueAt || null,
+        source: { kind: 'email', message_id: msg.id, received_at: msg.receivedDateTime || null },
+      };
+    }
+    function pendingTriageCount() {
+      const triaged = state.email_triage || {};
+      return ((window._inboxLastFetch || []).filter(m => !triaged[m.id])).length;
+    }
+    function isEmailTriaged(msgId) {
+      return !!(state.email_triage && state.email_triage[msgId]);
+    }
+
+    function addEmailCard(msg, dueAt) {
+      const draft = emailToCardDraft(msg, dueAt);
+      let cardId = null;
+      setState(s => {
+        const pos = s.cards.filter(c => c.project_id === 'inbox').length;
+        const c = card('inbox', null, pos, draft.title, draft.notes, draft.due);
+        c.source = draft.source;
+        c.context = 'work';
+        cardId = c.id;
+        s.cards.push(c);
+        s.email_triage[msg.id] = {
+          status: 'converted', card_id: cardId,
+          processed_at: now(), subject: msg.subject || '',
+        };
+        logActivity('card_created', 'From inbox: "' + (msg.subject || '(no subject)') + '"', {
+          source_type: 'card', source_id: cardId, context: 'work',
+        });
+      });
+      soundAdd && soundAdd();
+      return cardId;
+    }
+    function dismissEmail(msg) {
+      setState(s => {
+        s.email_triage[msg.id] = {
+          status: 'dismissed',
+          processed_at: now(),
+          subject: msg.subject || '',
+        };
+      });
+    }
+    function quickDueChips(currentValue, onPick) {
+      const today = todayISO();
+      const tomorrow = tomorrowISO();
+      const nextMonday = (() => {
+        const d = new Date(today + 'T00:00:00');
+        const day = d.getDay();
+        const add = (8 - day) % 7 || 7;
+        d.setDate(d.getDate() + add);
+        return d.toISOString().slice(0, 10);
+      })();
+      const picks = [
+        { label: 'Today', value: today },
+        { label: 'Tomorrow', value: tomorrow },
+        { label: 'Mon', value: nextMonday },
+        { label: 'None', value: '' },
+      ];
+      return el('div', { style: { display: 'flex', gap: '4px', flexWrap: 'wrap' } },
+        picks.map(p => el('button', {
+          class: 'text-btn' + (currentValue === p.value ? ' active' : ''),
+          style: {
+            padding: '2px 8px', fontSize: '11px', fontFamily: 'JetBrains Mono, monospace',
+            background: currentValue === p.value ? 'var(--accent-from)' : 'transparent',
+            color: currentValue === p.value ? '#fff' : 'var(--text-secondary)',
+            border: '1px solid ' + (currentValue === p.value ? 'transparent' : 'var(--border)'),
+            borderRadius: '4px', cursor: 'pointer',
+          },
+          onClick: () => onPick(p.value),
+        }, p.label)));
+    }
+
+    function renderInboxSettingsEl() {
+      const wrap = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '18px' } });
+      const es = state.ui.email_source || {};
+      const status = el('div', {
+        style: { fontSize: '11px', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-tertiary)' },
+      }, es.enabled && es.account_id
+        ? 'Connected · category “' + (es.category_name || 'Dashboard') + '”'
+        : 'Not connected. Defaults pre-filled — click Connect to sign in.');
+
+      const row = (label, input) => el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, [
+        el('label', { style: { fontSize: '11px', minWidth: '90px', color: 'var(--text-secondary)' } }, label),
+        input,
+      ]);
+      const clientInput = el('input', { type: 'text', value: es.client_id || '', placeholder: 'Application (client) ID', style: { flex: '1', fontFamily: 'JetBrains Mono, monospace', fontSize: '11px' }, onInput: (e) => { state.ui.email_source.client_id = e.target.value.trim(); saveState(); } });
+      const tenantInput = el('input', { type: 'text', value: es.tenant_id || '', placeholder: 'Tenant ID or "common"', style: { flex: '1', fontFamily: 'JetBrains Mono, monospace', fontSize: '11px' }, onInput: (e) => { state.ui.email_source.tenant_id = e.target.value.trim() || 'common'; saveState(); } });
+      const catInput = el('input', { type: 'text', value: es.category_name || 'Dashboard', placeholder: 'Outlook Category name', style: { flex: '1', fontSize: '12px' }, onInput: (e) => { state.ui.email_source.category_name = e.target.value; saveState(); } });
+
+      const connectBtn = el('button', {
+        class: 'primary',
+        onClick: async () => {
+          status.textContent = 'Opening sign-in popup…';
+          try {
+            await inboxConnect();
+            status.style.color = 'var(--text-secondary)';
+            status.textContent = 'Connected · ' + (state.ui.email_source.category_name || 'Dashboard');
+            // re-render so the connect button flips to disconnect
+            closeModal();
+            openSettingsModal();
+          } catch (e) {
+            status.style.color = '#f43f5e';
+            status.textContent = 'Failed: ' + e.message;
+          }
+        },
+      }, es.enabled && es.account_id ? 'Reconnect' : 'Connect');
+      const disconnectBtn = (es.enabled && es.account_id) ? el('button', {
+        class: 'danger',
+        onClick: async () => {
+          if (!confirm('Disconnect Outlook? Your triage history is kept.')) return;
+          await inboxDisconnect();
+          closeModal();
+          openSettingsModal();
+        },
+      }, 'Disconnect') : null;
+
+      const triageCount = Object.keys(state.email_triage || {}).length;
+      const resetBtn = triageCount > 0 ? el('button', {
+        onClick: () => {
+          if (!confirm('Clear ' + triageCount + ' triage record' + (triageCount === 1 ? '' : 's') + '? Already-converted cards stay in the dashboard; emails will reappear in the next pull so you can decide again.')) return;
+          setState(s => { s.email_triage = {}; });
+          closeModal();
+          openSettingsModal();
+        },
+      }, 'Reset triage history (' + triageCount + ')') : null;
+
+      wrap.appendChild(status);
+      wrap.appendChild(el('p', { style: { fontSize: '12px' } }, 'Tag Outlook emails with this Category, then “Pull tagged inbox” surfaces them here for triage. Older emails work too — just apply the Category.'));
+      wrap.appendChild(row('Client ID', clientInput));
+      wrap.appendChild(row('Tenant ID', tenantInput));
+      wrap.appendChild(row('Category', catInput));
+      wrap.appendChild(el('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '4px' } }, [connectBtn, disconnectBtn, resetBtn].filter(Boolean)));
+      return wrap;
+    }
+
+    async function openInboxTriageModal() {
+      const es = state.ui.email_source;
+      if (!es.enabled || !es.account_id) {
+        openModal([
+          el('h3', {}, 'Inbox not connected'),
+          el('p', {}, 'Open Settings → Inbox to connect your Outlook account first.'),
+          el('div', { class: 'modal-actions' }, [
+            el('button', { class: 'primary', onClick: () => { closeModal(); openSettingsModal(); } }, 'Open Settings'),
+            el('button', { onClick: closeModal }, 'Close'),
+          ]),
+        ]);
+        return;
+      }
+      const status = el('div', {
+        style: { fontSize: '11px', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-tertiary)' },
+      }, 'Loading from Outlook…');
+      const list = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '60vh', overflowY: 'auto', marginTop: '12px' } });
+      const refreshBtn = el('button', {
+        onClick: async () => {
+          status.textContent = 'Loading…'; status.style.color = 'var(--text-tertiary)';
+          await loadAndRender();
+        },
+      }, '↻ Refresh');
+
+      // dueByMsgId stays in closure so each row's chip clicks update the same store
+      const dueByMsgId = {};
+
+      function renderRow(msg) {
+        const triaged = state.email_triage[msg.id];
+        const row = el('div', {
+          style: {
+            border: '1px solid var(--border)', borderRadius: '8px', padding: '10px 12px',
+            background: triaged ? 'var(--overlay)' : 'transparent',
+            opacity: triaged ? '0.6' : '1',
+          },
+        });
+        const fromName = emailFromName(msg) || '(no sender)';
+        const when = msg.receivedDateTime ? new Date(msg.receivedDateTime).toLocaleString() : '';
+        row.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'baseline' } }, [
+          el('div', { style: { flex: '1', minWidth: '0' } }, [
+            el('div', { style: { fontWeight: '600' } }, msg.subject || '(no subject)'),
+            el('div', { style: { fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' } },
+              fromName + (when ? ' · ' + when : '')),
+          ]),
+          triaged
+            ? el('span', {
+                style: {
+                  fontSize: '11px', fontFamily: 'JetBrains Mono, monospace',
+                  color: triaged.status === 'converted' ? '#22c55e' : 'var(--text-tertiary)',
+                  whiteSpace: 'nowrap',
+                },
+              }, triaged.status === 'converted' ? '✓ Converted' : '✗ Dismissed')
+            : null,
+        ]));
+        if (msg.bodyPreview) {
+          row.appendChild(el('div', {
+            style: {
+              fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px',
+              maxHeight: '54px', overflow: 'hidden',
+              display: '-webkit-box', WebkitLineClamp: '3', WebkitBoxOrient: 'vertical',
+            },
+          }, msg.bodyPreview));
+        }
+        if (!triaged) {
+          const dueLabel = el('span', {
+            style: { fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace' },
+          }, 'Due:');
+          const dueInput = el('input', {
+            type: 'date',
+            value: dueByMsgId[msg.id] || '',
+            onInput: (e) => { dueByMsgId[msg.id] = e.target.value; chipsWrap.replaceWith(rebuildChips()); },
+            style: { fontSize: '11px', padding: '2px 4px' },
+          });
+          let chipsWrap = quickDueChips(dueByMsgId[msg.id] || '', (v) => {
+            dueByMsgId[msg.id] = v; dueInput.value = v; chipsWrap.replaceWith(rebuildChips());
+          });
+          function rebuildChips() {
+            const next = quickDueChips(dueByMsgId[msg.id] || '', (v) => {
+              dueByMsgId[msg.id] = v; dueInput.value = v; chipsWrap.replaceWith(next); chipsWrap = next;
+            });
+            chipsWrap = next;
+            return next;
+          }
+          const addBtn = el('button', {
+            class: 'primary',
+            style: { padding: '4px 10px', fontSize: '12px' },
+            onClick: () => {
+              addEmailCard(msg, dueByMsgId[msg.id] || null);
+              row.replaceWith(renderRow(msg));
+            },
+          }, '✓ Add');
+          const skipBtn = el('button', {
+            style: { padding: '4px 10px', fontSize: '12px' },
+            onClick: () => { dismissEmail(msg); row.replaceWith(renderRow(msg)); },
+          }, '✗ Skip');
+          row.appendChild(el('div', {
+            style: { display: 'flex', gap: '8px', alignItems: 'center', marginTop: '8px', flexWrap: 'wrap' },
+          }, [dueLabel, dueInput, chipsWrap, el('div', { style: { flex: '1' } }), skipBtn, addBtn]));
+        }
+        return row;
+      }
+
+      async function loadAndRender() {
+        clearNode(list);
+        try {
+          const messages = await inboxFetchTagged();
+          window._inboxLastFetch = messages;
+          const triaged = state.email_triage || {};
+          const pending = messages.filter(m => !triaged[m.id]);
+          const done = messages.filter(m => triaged[m.id]);
+          status.textContent = pending.length + ' pending · ' + done.length + ' already triaged · category “' + (state.ui.email_source.category_name || 'Dashboard') + '”';
+          status.style.color = 'var(--text-secondary)';
+          if (messages.length === 0) {
+            list.appendChild(el('div', {
+              style: { padding: '40px 12px', textAlign: 'center', color: 'var(--text-tertiary)', fontStyle: 'italic' },
+            }, 'No emails tagged with this category. Apply the “' + (state.ui.email_source.category_name || 'Dashboard') + '” category in Outlook, then refresh.'));
+            return;
+          }
+          pending.forEach(m => list.appendChild(renderRow(m)));
+          if (done.length) {
+            list.appendChild(el('div', {
+              style: { fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', margin: '12px 0 4px' },
+            }, 'Already triaged'));
+            done.forEach(m => list.appendChild(renderRow(m)));
+          }
+        } catch (e) {
+          status.textContent = 'Failed: ' + e.message;
+          status.style.color = '#f43f5e';
+        }
+      }
+
+      openModal([
+        el('h3', {}, '📥 Inbox triage'),
+        el('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', flexWrap: 'wrap' } }, [
+          status,
+          refreshBtn,
+        ]),
+        list,
+        el('div', { class: 'modal-actions' }, [el('button', { onClick: closeModal }, 'Close')]),
+      ]);
+      loadAndRender();
+    }
+
     // ---------- Anthropic API (email → tasks) ----------
     const ANTHROPIC_KEY_STORAGE = 'cmd_anthropic_key';
     function getAnthropicKey() { return localStorage.getItem(ANTHROPIC_KEY_STORAGE) || ''; }
@@ -3999,6 +4354,16 @@
       s.ui.banner_dismissed = s.ui.banner_dismissed || {};
       s.ui.collapsed_sections = s.ui.collapsed_sections || {};
       s.ui.calendar_sources = Array.isArray(s.ui.calendar_sources) ? s.ui.calendar_sources : [];
+      s.email_triage = (s.email_triage && typeof s.email_triage === 'object') ? s.email_triage : {};
+      s.ui.email_source = s.ui.email_source && typeof s.ui.email_source === 'object' ? s.ui.email_source : {};
+      const es = s.ui.email_source;
+      if (typeof es.enabled !== 'boolean') es.enabled = false;
+      if (typeof es.client_id !== 'string') es.client_id = 'b1ef832a-de26-4a44-b4d4-5698f96e5fbc';
+      if (typeof es.tenant_id !== 'string') es.tenant_id = '98a447d0-f30a-42a5-a45c-02054864159f';
+      if (typeof es.account_id !== 'string') es.account_id = '';
+      if (typeof es.category_name !== 'string') es.category_name = 'Dashboard';
+      if (typeof es.recent_window_days !== 'number') es.recent_window_days = 7;
+      if (typeof es.last_synced_at !== 'string' && es.last_synced_at !== null) es.last_synced_at = null;
       s.ui.layout = s.ui.layout || {};
       if (typeof s.ui.layout.left_width !== 'number') s.ui.layout.left_width = 260;
       if (typeof s.ui.layout.right_width !== 'number') s.ui.layout.right_width = 300;
@@ -5269,6 +5634,14 @@
       ]);
       nav.appendChild(tabs);
       nav.appendChild(el('div', { class: 'nav-spacer' }));
+      if (state.ui.email_source && state.ui.email_source.enabled) {
+        nav.appendChild(el('button', {
+          class: 'nav-drawer-btn',
+          title: 'Pull tagged inbox',
+          style: { display: 'inline-flex' },
+          onClick: () => openInboxTriageModal(),
+        }, '📥'));
+      }
       nav.appendChild(el('button', {
         class: 'nav-drawer-btn',
         title: 'Search everything · Cmd+K',
@@ -5666,6 +6039,9 @@
         el('div', { class: 'modal-label' }, 'Calendar sources'),
         renderCalendarSourcesSettingsEl(),
 
+        el('div', { class: 'modal-label' }, 'Inbox (Outlook)'),
+        renderInboxSettingsEl(),
+
         el('div', { class: 'modal-label' }, 'Archive'),
         (() => {
           const restorable = countRestorableArchived();
@@ -5782,6 +6158,12 @@
             el('span', {}, proj.name),
           ]));
         }
+      }
+      if (c.source && c.source.kind === 'email') {
+        pills.push(el('span', {
+          class: 'attach-pill',
+          title: 'From inbox' + (c.source.received_at ? ' · ' + new Date(c.source.received_at).toLocaleDateString() : ''),
+        }, '📥 inbox'));
       }
       if (dueLabel) {
         let cls = 'due-pill';
