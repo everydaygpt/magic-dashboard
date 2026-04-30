@@ -6441,8 +6441,8 @@
 
         top3Block.classList.add('today-sticky-top');
         leftCol.appendChild(top3Block);
-        leftCol.appendChild(renderJustDidBlock());
         leftCol.appendChild(renderTodayBankPanel());
+        leftCol.appendChild(renderJustDidBlock());
 
         // Right col leads with the at-a-glance Pulse strip (visible above the fold),
         // then the schedule + unscheduled drawer (which can scroll below if needed).
@@ -11500,7 +11500,6 @@
 
     // ---------- Init ----------
     function init() {
-      archiveOldDone();
       rollRecurringCards();
       rollMissedSchedules();
       attachLayoutHandlers();
