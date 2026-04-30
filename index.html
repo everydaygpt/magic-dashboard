@@ -1573,6 +1573,49 @@
     .projects-hub-card.status-done { opacity: 0.65; }
     .projects-hub-card.status-done:hover { opacity: 1; }
 
+    /* Completed projects collapsible section */
+    .completed-projects-section {
+      margin-top: 24px;
+      padding-top: 18px;
+      border-top: 1px dashed var(--border);
+    }
+    .completed-projects-summary {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 4px;
+      cursor: pointer;
+      list-style: none;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      user-select: none;
+    }
+    .completed-projects-summary::-webkit-details-marker { display: none; }
+    .completed-projects-summary:hover { color: var(--text-primary); }
+    .completed-projects-toggle {
+      display: inline-block;
+      transition: transform 180ms var(--ease);
+      font-size: 10px;
+    }
+    details[open] > .completed-projects-summary > .completed-projects-toggle { transform: rotate(90deg); }
+    .completed-projects-count {
+      padding: 1px 8px;
+      border-radius: 10px;
+      background: rgba(148, 163, 184, 0.16);
+      color: var(--text-secondary);
+      font-weight: 600;
+    }
+    .completed-projects-hint {
+      margin-left: auto;
+      font-size: 10px;
+      color: var(--text-tertiary);
+      text-transform: none;
+      letter-spacing: 0;
+      font-style: italic;
+    }
+    .projects-hub-grid.completed { margin-top: 12px; }
+
     /* Make hub card head wrap nicely with the new status pill */
     .projects-hub-card-head { flex-wrap: wrap; gap: 8px; align-items: center; }
 
@@ -4075,6 +4118,12 @@
     function visibleProjects() {
       return state.projects.filter(p => contextMatches(p.context));
     }
+    // Projects shown in the main hub grid + nav badge + Pulse panel — excludes "Done"
+    // so completed projects don't clutter the active workspace. Reopen them from the
+    // "Completed" section on the Projects hub.
+    function visibleActiveProjects() {
+      return visibleProjects().filter(p => (p.status || 'active') !== 'done');
+    }
     function cardsForColumn(pid, cid) {
       return state.cards
         .filter(c => c.project_id === pid && c.column_id === cid && !c.archived)
@@ -5156,7 +5205,7 @@
       nav.appendChild(el('div', { class: 'nav-brand' }, 'MAGIC'));
       const tabs = el('div', { class: 'nav-tabs' }, [
         mkTab('today', 'Today', '◉', { count: todayCards().length + planCards('priority', todayISO()).length }),
-        mkTab('projects', 'Projects', '◳', { count: visibleProjects().length }),
+        mkTab('projects', 'Projects', '◳', { count: visibleActiveProjects().length }),
         el('div', { class: 'nav-sep' }),
         mkTab('ideas', 'Ideas', '💡', { secondary: true, count: visibleIdeas().length }),
         mkTab('goals', 'Goals', '🎯', { secondary: true, count: visibleGoals().length }),
@@ -6087,33 +6136,68 @@
         el('div', { class: 'main-title-dot' }),
         el('span', {}, 'Projects'),
       ]));
-      const projs = visibleProjects();
-      // Sort: Active first, then On hold, Blocked, Done last
-      projs.sort((a, b) => {
+      const allProjs = visibleProjects();
+      const activeProjs = allProjs.filter(p => (p.status || 'active') !== 'done');
+      const doneProjs = allProjs.filter(p => (p.status || 'active') === 'done');
+      // Sort active by status order
+      activeProjs.sort((a, b) => {
         const ai = PROJECT_STATUS_ORDER.indexOf(a.status || 'active');
         const bi = PROJECT_STATUS_ORDER.indexOf(b.status || 'active');
         if (ai !== bi) return ai - bi;
         return (a.name || '').localeCompare(b.name || '');
       });
+      doneProjs.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
       const counts = {};
-      projs.forEach(p => { const s = p.status || 'active'; counts[s] = (counts[s] || 0) + 1; });
-      const subtitleParts = [projs.length + ' project' + (projs.length === 1 ? '' : 's')];
-      PROJECT_STATUS_ORDER.forEach(s => {
+      activeProjs.forEach(p => { const s = p.status || 'active'; counts[s] = (counts[s] || 0) + 1; });
+      const subtitleParts = [activeProjs.length + ' active'];
+      ['on_hold', 'blocked'].forEach(s => {
         if (counts[s]) subtitleParts.push(counts[s] + ' ' + PROJECT_STATUS[s].label.toLowerCase());
       });
+      if (doneProjs.length) subtitleParts.push(doneProjs.length + ' completed');
       header.appendChild(el('div', { class: 'main-subtitle' }, subtitleParts.join(' · ')));
       header.appendChild(el('div', { class: 'main-actions' }, [
         el('button', { class: 'text-btn', onClick: () => openNewProjectModal() }, '+ New project'),
       ]));
-      const grid = el('div', { class: 'projects-hub-grid' });
-      projs.forEach(p => grid.appendChild(projectHubCardEl(p)));
-      if (projs.length === 0) {
+
+      if (activeProjs.length === 0 && doneProjs.length === 0) {
         body.appendChild(el('div', {
           style: { padding: '40px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '13px' },
         }, 'No projects yet. Click "+ New project" to start one.'));
         return;
       }
+
+      const grid = el('div', { class: 'projects-hub-grid' });
+      activeProjs.forEach(p => grid.appendChild(projectHubCardEl(p)));
+      if (activeProjs.length === 0) {
+        grid.appendChild(el('div', {
+          style: { padding: '20px', color: 'var(--text-tertiary)', fontSize: '13px', fontStyle: 'italic' },
+        }, 'All projects are done. Suspicious.'));
+      }
       body.appendChild(grid);
+
+      if (doneProjs.length) {
+        const isOpen = !!state.ui._completed_projects_open;
+        const section = el('details', {
+          class: 'completed-projects-section',
+          open: isOpen ? 'open' : null,
+          onToggle: (e) => {
+            // Persist open/closed in ui state without triggering full render churn
+            state.ui._completed_projects_open = e.target.open;
+            saveState();
+          },
+        });
+        section.appendChild(el('summary', { class: 'completed-projects-summary' }, [
+          el('span', { class: 'completed-projects-toggle' }, '▸'),
+          el('span', {}, 'Completed projects'),
+          el('span', { class: 'completed-projects-count' }, String(doneProjs.length)),
+          el('span', { class: 'completed-projects-hint' }, 'click a status pill to reopen'),
+        ]));
+        const doneGrid = el('div', { class: 'projects-hub-grid completed' });
+        doneProjs.forEach(p => doneGrid.appendChild(projectHubCardEl(p)));
+        section.appendChild(doneGrid);
+        body.appendChild(section);
+      }
     }
 
     const PROJECT_STATUS = {
@@ -9769,7 +9853,7 @@
     }
 
     function renderProjectsPulsePanel() {
-      const projects = visibleProjects();
+      const projects = visibleActiveProjects();
       const panel = el('div', { class: 'rail-panel pulse-panel' });
       panel.appendChild(pulsePanelHead('Projects', projects.length));
 
