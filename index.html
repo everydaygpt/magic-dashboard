@@ -2939,15 +2939,44 @@
     .file-chip:hover .file-del { opacity: 1; }
     .files-empty { padding: 12px; color: var(--text-tertiary); font-size: 12px; font-style: italic; }
 
-    /* ---------- Snark bar ---------- */
+    /* ---------- Snark / Quote bar ---------- */
     #snark-bar {
-      position: fixed; bottom: 0; left: 0; right: 0; height: 32px;
+      position: fixed; bottom: 0; left: 0; right: 0;
+      min-height: 32px; padding: 6px 16px;
       display: flex; align-items: center; justify-content: center; gap: 8px;
       font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-tertiary);
       background: var(--snark-bg, rgba(11, 11, 20, 0.8)); backdrop-filter: blur(20px);
       border-top: 1px solid var(--border); z-index: 5;
+      cursor: default;
     }
-    #snark-bar::before { content: '▸'; color: var(--accent-from); }
+    #snark-bar.snark-mode::before { content: '▸'; color: var(--accent-from); }
+    #snark-bar.quote-mode {
+      cursor: pointer;
+      font-family: inherit;
+    }
+    #snark-bar .footer-quote-mark {
+      font-family: Georgia, serif;
+      font-size: 18px;
+      line-height: 0.9;
+      background: linear-gradient(135deg, var(--accent-from), var(--accent-to));
+      -webkit-background-clip: text; background-clip: text;
+      color: transparent;
+      flex-shrink: 0;
+    }
+    #snark-bar .footer-quote-text {
+      font-style: italic;
+      font-size: 12px;
+      color: var(--text-secondary);
+      max-width: 70vw;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    #snark-bar .footer-quote-attr {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--text-tertiary);
+      letter-spacing: 0.04em;
+      flex-shrink: 0;
+    }
 
     /* ---------- Modal ---------- */
     .modal-backdrop {
@@ -6429,15 +6458,10 @@
         cmd.appendChild(rightCol);
 
         // Email suggestions tray — only when triage agent has pending items.
-        // Sits above the daily quote so action items are the first thing you see.
         const tray = renderEmailSuggestionsTray();
         if (tray) body.appendChild(tray);
 
-        // Daily quote — full-width strip above the 2-column body, first thing seen on Today
-        const dailyQuote = pickDailyQuote();
-        if (dailyQuote) {
-          body.appendChild(renderTodayQuote(dailyQuote));
-        }
+        // (Daily quote now lives in the footer — see renderSnark.)
         body.appendChild(cmd);
       } else {
         const wrap = el('div', { class: 'plan-wrap' });
@@ -11447,8 +11471,32 @@
       setTimeout(() => burst.remove(), 950);
     }
 
-    // ---------- Snark ----------
-    function renderSnark() { document.getElementById('snark-bar').textContent = snarkLine; }
+    // ---------- Snark / Quote bar ----------
+    // Footer shows the daily book quote when one exists, falling back to a snark line.
+    // Quote click jumps to Books view.
+    function renderSnark() {
+      const bar = document.getElementById('snark-bar');
+      if (!bar) return;
+      clearNode(bar);
+      const dq = pickDailyQuote();
+      if (dq) {
+        bar.className = 'quote-mode';
+        bar.onclick = () => { setState(s => { s.ui.active_view = 'books'; }); };
+        bar.title = dq.quote.text + (dq.book ? ' — ' + [dq.book.author, dq.book.title].filter(Boolean).join(', ') : '');
+        bar.appendChild(el('span', { class: 'footer-quote-mark' }, '"'));
+        bar.appendChild(el('span', { class: 'footer-quote-text' }, dq.quote.text));
+        if (dq.book) {
+          const attrParts = [];
+          if (dq.book.author) attrParts.push(dq.book.author);
+          if (dq.book.title) attrParts.push(dq.book.title);
+          if (attrParts.length) bar.appendChild(el('span', { class: 'footer-quote-attr' }, '— ' + attrParts.join(', ')));
+        }
+      } else {
+        bar.className = 'snark-mode';
+        bar.onclick = null;
+        bar.textContent = snarkLine;
+      }
+    }
 
     // ---------- Init ----------
     function init() {
