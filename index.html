@@ -6571,7 +6571,7 @@
         const files = filesForOwner('card', cardId);
         const list = el('div', { class: 'card-files-list' });
         if (files.length === 0) {
-          list.appendChild(el('div', { class: 'card-files-empty' }, 'No attachments. Drop files here or click + to pick.'));
+          list.appendChild(el('div', { class: 'card-files-empty' }, 'No attachments. Drop, paste, or click + to pick.'));
         } else {
           files.forEach(f => list.appendChild(fileChipEl(f)));
         }
@@ -6603,6 +6603,9 @@
       };
 
       rebuild();
+      // Paste-to-attach: bound to the wrap's lifecycle (auto-removes when modal closes).
+      // Attached once per cardFilesSectionEl construction so we don't pile up handlers.
+      setupFilePaste(wrap, 'card', cardId, rebuild);
       return wrap;
     }
 
@@ -7606,13 +7609,14 @@
     function itemFilesEl(kind, itemId) {
       const files = filesForOwner(kind, itemId);
       const box = el('div', { class: 'item-files' });
-      box.appendChild(el('div', { class: 'item-files-label' }, 'ATTACHMENTS — DROP A FILE'));
+      box.appendChild(el('div', { class: 'item-files-label' }, 'ATTACHMENTS — DROP OR PASTE'));
       if (files.length === 0) {
         box.appendChild(el('div', { class: 'item-files-empty' }, EMPTY_COPY.itemFiles));
       } else {
         box.appendChild(el('div', { class: 'item-files-chips' }, files.map(fileChipEl)));
       }
       setupFileDrop(box, kind, itemId);
+      setupFilePaste(box, kind, itemId);
       return box;
     }
 
@@ -9703,6 +9707,34 @@
       });
     }
 
+    // Attach a document-level paste handler that captures image clipboard items
+    // and routes them to addFile(ownerType, ownerId). Text paste still works
+    // normally (we only preventDefault when an image was found). Self-cleans
+    // when `container` is removed from the DOM (e.g. modal closes).
+    function setupFilePaste(container, ownerType, ownerId, onAdd) {
+      const handler = (e) => {
+        if (!container.isConnected) {
+          document.removeEventListener('paste', handler);
+          return;
+        }
+        if (!e.clipboardData || !e.clipboardData.items) return;
+        const imageItems = Array.from(e.clipboardData.items)
+          .filter(it => it.kind === 'file' && /^image\//.test(it.type));
+        if (imageItems.length === 0) return;
+        e.preventDefault();
+        for (const it of imageItems) {
+          const blob = it.getAsFile();
+          if (!blob) continue;
+          const ext = (blob.type.split('/')[1] || 'png').replace(/[^a-z0-9]/g, '');
+          const stamp = new Date().toISOString().replace(/[-:T.]/g, '').slice(0, 14);
+          const named = new File([blob], 'pasted-' + stamp + '.' + ext, { type: blob.type });
+          addFile(ownerType, ownerId, named);
+        }
+        if (typeof onAdd === 'function') setTimeout(onAdd, 120);
+      };
+      document.addEventListener('paste', handler);
+    }
+
     // ---------- Just Did: log completions inline on Today ----------
     function renderJustDidBlock() {
       const today = todayISO();
@@ -10231,6 +10263,7 @@
         if (files.length === 0) filesBox.appendChild(el('div', { class: 'files-empty' }, EMPTY_COPY.files));
         else files.forEach(f => filesBox.appendChild(fileChipEl(f)));
         setupFileDrop(filesBox, 'project', proj.id);
+        setupFilePaste(filesBox, 'project', proj.id);
         rail.appendChild(el('div', { class: 'rail-panel' }, [
           el('div', { class: 'rail-panel-head' }, [el('div', { class: 'rail-panel-title' }, 'Files')]),
           filesBox,
