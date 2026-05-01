@@ -2971,7 +2971,7 @@
       font-style: italic;
       font-size: 13px;
       font-weight: 500;
-      color: var(--text-primary);
+      color: #f5f5ff;
       max-width: 72vw;
       line-height: 1.4;
       display: -webkit-box;
@@ -2982,11 +2982,15 @@
     #snark-bar .footer-quote-attr {
       font-family: 'JetBrains Mono', monospace;
       font-size: 10px;
-      color: var(--text-secondary);
+      color: #b8b8d6;
       letter-spacing: 0.04em;
       flex-shrink: 0;
       align-self: flex-end;
     }
+    /* Snark bar always renders dark (independent of light/dark theme), so force bright text. */
+    html[data-theme="personal"] #snark-bar .footer-quote-text { color: #f5f5ff; }
+    html[data-theme="personal"] #snark-bar .footer-quote-attr { color: #b8b8d6; }
+    html[data-theme="personal"] #snark-bar { color: #b8b8d6; }
 
     /* ---------- Modal ---------- */
     .modal-backdrop {
