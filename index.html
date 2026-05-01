@@ -1251,6 +1251,23 @@
       font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-tertiary);
       padding: 2px 6px; background: rgba(255, 255, 255, 0.04); border-radius: 6px;
     }
+    .column-info-badge {
+      font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 600;
+      letter-spacing: 0.08em; color: var(--accent-from);
+      padding: 2px 6px; border: 1px solid var(--accent-from);
+      border-radius: 4px; background: rgba(124, 58, 237, 0.08);
+      margin-left: 4px;
+    }
+    .column.info-col {
+      background: rgba(124, 58, 237, 0.04);
+      border-color: rgba(124, 58, 237, 0.25);
+    }
+    .column.info-col .column-header { border-bottom-color: rgba(124, 58, 237, 0.2); }
+    .card.info-card {
+      background: rgba(124, 58, 237, 0.06);
+      border-left: 2px solid var(--accent-from);
+    }
+    .card.info-card .card-title { font-weight: 500; }
     .column-menu-wrap { position: relative; }
     .column-menu {
       position: absolute; right: 0; top: 100%; margin-top: 6px;
@@ -4283,6 +4300,13 @@
           label: typeof l.label === 'string' ? l.label.trim() : '',
           url: typeof l.url === 'string' ? l.url.trim() : '',
         })).filter(l => l.url);
+        // Column kind migration — every column is implicitly 'tasks' unless flagged
+        // 'info'. Info columns hold reference cards (no due, no schedule, no
+        // checkbox); they're for context that lives next to the work, not the work.
+        const columns = Array.isArray(p.columns) ? p.columns.map(c => ({
+          ...c,
+          kind: c && c.kind === 'info' ? 'info' : 'tasks',
+        })) : [];
         return {
           ...p,
           context: p.context || 'work',
@@ -4291,6 +4315,7 @@
           links,
           description: typeof p.description === 'string' ? p.description : '',
           status: ['active', 'on_hold', 'blocked', 'done'].includes(p.status) ? p.status : 'active',
+          columns,
         };
       });
       s.ideas = (s.ideas || []).map(i => ({
@@ -4580,7 +4605,7 @@
     }
     function bankCards() {
       return state.cards
-        .filter(c => !c.archived && !c.done_at && !c.scheduled_time)
+        .filter(c => !c.archived && !c.done_at && !c.scheduled_time && !isInfoCard(c))
         .sort((a, b) => {
           const aDue = resolveDueISO(a.due);
           const bDue = resolveDueISO(b.due);
@@ -4603,6 +4628,7 @@
       return state.cards.filter(c => {
         if (c.project_id === 'inbox') return false;
         if (c.archived) return false;
+        if (isInfoCard(c)) return false;
         if (!contextMatches(contextOf(c, 'card'))) return false;
         return isDueToday(c);
       });
@@ -4864,6 +4890,23 @@
     function isDoneColumn(p, cid) {
       const col = p.columns.find(c => c.id === cid);
       return col && /done|complete|finished|shipped/i.test(col.name);
+    }
+    function isInfoColumn(col) { return !!(col && col.kind === 'info'); }
+    function columnOfCard(c) {
+      if (!c || !c.project_id || c.project_id === 'inbox' || !c.column_id) return null;
+      const p = state.projects.find(x => x.id === c.project_id);
+      if (!p || !Array.isArray(p.columns)) return null;
+      return p.columns.find(x => x.id === c.column_id) || null;
+    }
+    function isInfoCard(c) { return isInfoColumn(columnOfCard(c)); }
+    function setColumnKind(pid, cid, kind) {
+      setState(s => {
+        const p = s.projects.find(x => x.id === pid);
+        if (!p) return;
+        const col = p.columns.find(x => x.id === cid);
+        if (!col) return;
+        col.kind = kind === 'info' ? 'info' : 'tasks';
+      });
     }
 
     function addCard(pid, cid, title) {
@@ -6466,12 +6509,8 @@
         deleteCard(cardId);
         closeModal();
       };
-      openModal([
-        el('h3', {}, 'Edit task'),
-        titleInput,
-        notesArea,
-        el('div', { class: 'modal-label' }, 'Context'),
-        ctxToggle,
+      const isInfo = isInfoCard(c);
+      const taskFields = isInfo ? [] : [
         el('div', { class: 'card-edit-row', style: { marginTop: '10px' } }, [
           el('span', { style: { fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.05em' } }, 'Due'),
           noneBtn, todayBtn, tomorrowBtn, dateInput,
@@ -6487,7 +6526,15 @@
         customRow,
         el('div', { class: 'modal-label', style: { marginTop: '10px' } }, 'Estimated duration (optional)'),
         durationInput,
-        el('div', { class: 'modal-label', style: { marginTop: '10px' } }, 'Subtasks'),
+      ];
+      openModal([
+        el('h3', {}, isInfo ? '📌 Edit info card' : 'Edit task'),
+        titleInput,
+        notesArea,
+        el('div', { class: 'modal-label' }, 'Context'),
+        ctxToggle,
+        ...taskFields,
+        el('div', { class: 'modal-label', style: { marginTop: '10px' } }, isInfo ? 'Checklist' : 'Subtasks'),
         subtaskSectionEl(cardId),
         el('div', { class: 'modal-label', style: { marginTop: '10px' } }, 'Attachments'),
         cardFilesSectionEl(cardId),
@@ -9340,7 +9387,8 @@
       const cards = q
         ? allCards.filter(c => (c.title || '').toLowerCase().includes(q) || (c.notes || '').toLowerCase().includes(q))
         : allCards;
-      const node = el('div', { class: 'column', dataset: { columnId: col.id, projectId: proj.id } });
+      const isInfo = isInfoColumn(col);
+      const node = el('div', { class: 'column' + (isInfo ? ' info-col' : ''), dataset: { columnId: col.id, projectId: proj.id } });
       const menuWrap = el('div', { class: 'column-menu-wrap' });
       const menuBtn = el('button', {
         class: 'icon-btn', title: 'Column menu',
@@ -9358,9 +9406,10 @@
           },
           onKeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } },
         }, col.name),
+        isInfo ? el('span', { class: 'column-info-badge', title: 'Reference column — cards aren’t tasks' }, 'INFO') : null,
         el('span', { class: 'column-count' }, q && cards.length !== allCards.length ? cards.length + ' / ' + allCards.length : String(allCards.length)),
         menuWrap,
-      ]);
+      ].filter(Boolean));
       node.appendChild(header);
 
       const cardList = el('div', { class: 'column-cards' });
@@ -9442,8 +9491,13 @@
     function toggleColumnMenu(wrap, proj, col) {
       const existing = wrap.querySelector('.column-menu');
       if (existing) { existing.remove(); return; }
+      const isInfo = isInfoColumn(col);
       const menu = el('div', { class: 'column-menu' }, [
         el('button', { onClick: () => { wrap.parentElement.querySelector('.column-title').focus(); menu.remove(); } }, 'Rename'),
+        el('button', {
+          onClick: () => { setColumnKind(proj.id, col.id, isInfo ? 'tasks' : 'info'); menu.remove(); },
+          title: isInfo ? 'Cards here behave as tasks' : 'Cards here become reference / info cards (no due, no schedule, no checkbox)',
+        }, isInfo ? '→ Convert to task column' : '📌 Convert to info column'),
         el('button', { onClick: () => { const idx = proj.columns.findIndex(c => c.id === col.id); addColumn(proj.id, 'New column', idx); } }, 'Add before'),
         el('button', { onClick: () => { const idx = proj.columns.findIndex(c => c.id === col.id); addColumn(proj.id, 'New column', idx + 1); } }, 'Add after'),
         el('button', { class: 'danger', onClick: () => { menu.remove(); openDeleteColumnModal(proj, col); } }, 'Delete column'),
@@ -9455,8 +9509,9 @@
 
     function cardEl(c, proj) {
       const isExpanded = expandedCardId === c.id;
+      const isInfo = isInfoCard(c);
       const node = el('div', {
-        class: 'card' + (isExpanded ? ' expanded' : ''),
+        class: 'card' + (isExpanded ? ' expanded' : '') + (isInfo ? ' info-card' : ''),
         dataset: { cardId: c.id },
         onClick: (e) => {
           if (isExpanded) return;
@@ -9465,13 +9520,14 @@
         },
       });
       if (!isExpanded) {
-        node.appendChild(el('div', { class: 'card-title' }, c.title));
+        node.appendChild(el('div', { class: 'card-title' }, isInfo ? '📌 ' + c.title : c.title));
         if (c.notes) node.appendChild(el('div', { class: 'card-notes-preview' }, c.notes));
         const footer = el('div', { class: 'card-footer' });
-        if (c.due) footer.appendChild(duePillEl(c.due));
-        if (c.today_slot) footer.appendChild(el('div', { class: 'card-pill plan' }, c.today_slot === 'priority' ? '⭐ Top 3' : c.today_slot));
-        if (c.recurrence) footer.appendChild(el('div', { class: 'card-pill', title: 'Recurring: ' + c.recurrence }, '↺ ' + c.recurrence));
-        if (c.duration_minutes) footer.appendChild(el('div', { class: 'card-pill', title: 'Estimated duration' }, '⏱ ' + formatDuration(c.duration_minutes)));
+        // Task-only pills suppressed on info cards (they shouldn't show due/recur/duration since none of those apply)
+        if (!isInfo && c.due) footer.appendChild(duePillEl(c.due));
+        if (!isInfo && c.today_slot) footer.appendChild(el('div', { class: 'card-pill plan' }, c.today_slot === 'priority' ? '⭐ Top 3' : c.today_slot));
+        if (!isInfo && c.recurrence) footer.appendChild(el('div', { class: 'card-pill', title: 'Recurring: ' + c.recurrence }, '↺ ' + c.recurrence));
+        if (!isInfo && c.duration_minutes) footer.appendChild(el('div', { class: 'card-pill', title: 'Estimated duration' }, '⏱ ' + formatDuration(c.duration_minutes)));
         if (c.subtasks && c.subtasks.length) {
           const { done, total } = countSubtaskProgress(c.subtasks);
           footer.appendChild(el('div', { class: 'card-pill', title: done + ' of ' + total + ' subtasks complete' }, '☑ ' + done + ' / ' + total));
