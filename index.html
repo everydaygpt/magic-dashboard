@@ -9313,23 +9313,24 @@
 
     // Create a blank card in the project's first non-Done column and immediately
     // open the edit modal so the user can fill in details + attachments.
-    function addProjectTaskAndEdit(proj) {
+    function addProjectTaskAndEdit(proj, targetCol) {
       if (!proj.columns || proj.columns.length === 0) return;
-      const firstNonDone = proj.columns.find(col => !isDoneColumn(proj, col.id)) || proj.columns[0];
+      const col = targetCol || proj.columns.find(c => !isDoneColumn(proj, c.id)) || proj.columns[0];
       const id = uid('card');
       setState(s => {
-        const pos = s.cards.filter(c => c.project_id === proj.id && c.column_id === firstNonDone.id && !c.archived).length;
+        const pos = s.cards.filter(c => c.project_id === proj.id && c.column_id === col.id && !c.archived).length;
         s.cards.push({
-          id, project_id: proj.id, column_id: firstNonDone.id, position: pos,
+          id, project_id: proj.id, column_id: col.id, position: pos,
           title: 'New task', notes: '', due: null,
           today_slot: null, today_position: 0, plan_date: null,
           context: proj.context || null, done_at: null, archived: false,
           recurrence: null, created_at: now(),
         });
-        logActivity('card_created', 'Added task in ' + proj.name, { project_id: proj.id, source_type: 'card', source_id: id, context: proj.context });
+        logActivity('card_created', 'Added task in ' + proj.name + (col ? ' / ' + col.name : ''), { project_id: proj.id, source_type: 'card', source_id: id, context: proj.context });
       });
       soundAdd();
-      // Open the edit modal so the user can rename + attach files in one flow
+      // Open the edit modal so the user gets the full form: due, lane, time,
+      // duration, links, attachments — not the stripped-down quick-add modal.
       setTimeout(() => openCardEditModal(id), 50);
     }
 
@@ -9368,7 +9369,7 @@
       node.appendChild(cardList);
       node.appendChild(el('button', {
         class: 'col-add-btn',
-        onClick: () => openNewCardModal(proj, col),
+        onClick: () => addProjectTaskAndEdit(proj, col),
       }, '+ Add card'));
       return node;
     }
@@ -10146,7 +10147,7 @@
       applyBtn.addEventListener('click', () => {
         const active = rows.filter(r => !r.skip);
         if (active.length === 0) return;
-        if (!confirm('Apply ' + active.length + ' completion' + (active.length === 1 ? '' : 's') + ' to ' + proj.name + '?')) return;
+        if (!confirm('Apply ' + active.length + ' completion' + (active.length === 1 ? '' : 's') + ' to ' + proj.name + '?\n\nIndividual cards stay in ' + (doneColName || 'archive') + '. The schedule gets one summary card with each completion as a subtask.')) return;
 
         setState(s => {
           const todayStr = todayISO();
@@ -10170,18 +10171,26 @@
           };
           // Track which existing cards have been matched in this batch (avoid double-matching)
           const usedIds = new Set();
+          // Collect data for the summary card so the schedule shows one entry, not N
+          const subtasks = [];
+          let earliestSched = null;
+          let earliestDoneAt = null;
           active.forEach(r => {
             const stamp = stampFor(r);
+            // Track earliest stamp for the summary card's anchor on the schedule
+            if (!earliestSched || stamp.scheduled_time < earliestSched) earliestSched = stamp.scheduled_time;
+            if (!earliestDoneAt || stamp.done_at < earliestDoneAt) earliestDoneAt = stamp.done_at;
+            // Subtask label includes time for traceability — the original line text already
+            // tends to carry the time the user typed; keep r.text intact so context survives.
+            subtasks.push({ id: uid('st'), title: r.text, done: true, subtasks: [] });
+
             if (r.match && !usedIds.has(r.match.card.id)) {
               usedIds.add(r.match.card.id);
               const c = s.cards.find(x => x.id === r.match.card.id);
               if (!c) return;
               c.done_at = stamp.done_at;
-              if (!c.scheduled_time) {
-                c.scheduled_time = stamp.scheduled_time;
-                c._auto_scheduled = true;
-                if (!c.duration_minutes) c.duration_minutes = 15;
-              }
+              // Per user request: don't put individual completions on the schedule.
+              // The summary card (created below) is the single schedule entry.
               if (doneCol) {
                 c.column_id = doneCol.id;
                 c.position = s.cards.filter(x => x.project_id === proj.id && x.column_id === doneCol.id).length;
@@ -10190,7 +10199,7 @@
               }
               logActivity('card_done', 'Completed "' + c.title + '"', { project_id: proj.id, source_type: 'card', source_id: c.id, context: proj.context });
             } else {
-              // Create new card already done
+              // Create new card already done — no scheduled_time so it stays out of the schedule
               const targetCol = doneCol || proj.columns[proj.columns.length - 1];
               const card = {
                 id: uid('card'),
@@ -10206,15 +10215,42 @@
                 archived: !doneCol,
                 recurrence: null,
                 created_at: now(),
-                scheduled_time: stamp.scheduled_time,
-                duration_minutes: 15,
-                _auto_scheduled: true,
+                scheduled_time: null,
+                duration_minutes: null,
                 source: { kind: 'bulk-log' },
               };
               s.cards.push(card);
               logActivity('card_done', 'Logged "' + r.text + '"', { project_id: proj.id, source_type: 'card', source_id: card.id, context: proj.context });
             }
           });
+
+          // Summary card — single entry on the schedule with each completion as a subtask.
+          // Marked archived so it doesn't pollute the project's Done column; the schedule
+          // still surfaces it for its scheduled day via scheduledOnDate's archived+done_at
+          // special case, then it disappears once the day flips.
+          if (subtasks.length > 0) {
+            const summaryCard = {
+              id: uid('card'),
+              project_id: proj.id,
+              column_id: null,
+              position: 0,
+              title: proj.name + ' — Bulk Completion (' + subtasks.length + ')',
+              notes: '',
+              due: null,
+              today_slot: null, today_position: 0, plan_date: null,
+              context: proj.context,
+              done_at: earliestDoneAt,
+              archived: true,
+              recurrence: null,
+              created_at: now(),
+              scheduled_time: earliestSched,
+              duration_minutes: Math.min(120, Math.max(15, subtasks.length * 5)),
+              _auto_scheduled: true,
+              subtasks,
+              source: { kind: 'bulk-log-summary', count: subtasks.length },
+            };
+            s.cards.push(summaryCard);
+          }
         });
         setTimeout(soundDone, 0);
         closeModal();
