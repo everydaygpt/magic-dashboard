@@ -3394,13 +3394,16 @@
         s.ui.email_source.enabled = false;
       });
     }
-    async function inboxFetchTagged() {
+    async function inboxFetchPending() {
       const es = state.ui.email_source;
-      const cat = es.category_name || 'Dashboard';
+      const cat = (es.category_name || 'Dashboard').replace(/'/g, "''");
       const token = await inboxGetToken();
+      // Pull tagged + flagged in a single query. Graph rejects $orderby with
+      // some flag-status filters, so client-side sort by receivedDateTime.
+      const filter = "categories/any(c: c eq '" + cat + "') or flag/flagStatus eq 'flagged'";
       const url = 'https://graph.microsoft.com/v1.0/me/messages'
-        + '?$filter=' + encodeURIComponent("categories/any(c: c eq '" + cat.replace(/'/g, "''") + "')")
-        + '&$top=50&$orderby=receivedDateTime desc'
+        + '?$filter=' + encodeURIComponent(filter)
+        + '&$top=100'
         + '&$select=id,subject,bodyPreview,from,toRecipients,receivedDateTime,categories,flag,webLink';
       const res = await fetch(url, { headers: { 'Authorization': 'Bearer ' + token } });
       if (!res.ok) {
@@ -3409,7 +3412,18 @@
       }
       const data = await res.json();
       setState(s => { s.ui.email_source.last_synced_at = now(); });
-      return data.value || [];
+      const messages = (data.value || []).slice().sort((a, b) => {
+        const ad = a.receivedDateTime || '';
+        const bd = b.receivedDateTime || '';
+        return bd.localeCompare(ad);
+      });
+      return messages;
+    }
+    function inboxSourceBadges(msg) {
+      const cat = (state.ui.email_source && state.ui.email_source.category_name) || 'Dashboard';
+      const tagged = Array.isArray(msg.categories) && msg.categories.includes(cat);
+      const flagged = msg.flag && msg.flag.flagStatus === 'flagged';
+      return { tagged, flagged };
     }
     function emailFromName(msg) {
       const f = msg && msg.from && msg.from.emailAddress;
@@ -3555,7 +3569,7 @@
       }, 'Reset triage history (' + triageCount + ')') : null;
 
       wrap.appendChild(status);
-      wrap.appendChild(el('p', { style: { fontSize: '12px' } }, 'Tag Outlook emails with this Category, then “Pull tagged inbox” surfaces them here for triage. Older emails work too — just apply the Category.'));
+      wrap.appendChild(el('p', { style: { fontSize: '12px' } }, 'Two ways to surface an email for triage: 🚩 flag it (one tap on mobile) or 🏷 apply this Outlook Category. Both old and new emails work — apply, then refresh in 📥.'));
       wrap.appendChild(row('Client ID', clientInput));
       wrap.appendChild(row('Tenant ID', tenantInput));
       wrap.appendChild(row('Category', catInput));
@@ -3601,11 +3615,31 @@
         });
         const fromName = emailFromName(msg) || '(no sender)';
         const when = msg.receivedDateTime ? new Date(msg.receivedDateTime).toLocaleString() : '';
+        const sig = inboxSourceBadges(msg);
+        const sourceBadges = el('div', { style: { display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '4px' } }, [
+          sig.flagged ? el('span', {
+            style: {
+              fontSize: '10px', fontFamily: 'JetBrains Mono, monospace',
+              padding: '1px 6px', borderRadius: '4px',
+              background: 'rgba(239, 68, 68, 0.12)', color: '#ef4444',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+            },
+          }, '🚩 flagged') : null,
+          sig.tagged ? el('span', {
+            style: {
+              fontSize: '10px', fontFamily: 'JetBrains Mono, monospace',
+              padding: '1px 6px', borderRadius: '4px',
+              background: 'rgba(124, 58, 237, 0.12)', color: 'var(--accent-from)',
+              border: '1px solid rgba(124, 58, 237, 0.3)',
+            },
+          }, '🏷 ' + ((state.ui.email_source.category_name || 'Dashboard'))) : null,
+        ].filter(Boolean));
         row.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'baseline' } }, [
           el('div', { style: { flex: '1', minWidth: '0' } }, [
             el('div', { style: { fontWeight: '600' } }, msg.subject || '(no subject)'),
             el('div', { style: { fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' } },
               fromName + (when ? ' · ' + when : '')),
+            (sig.flagged || sig.tagged) ? sourceBadges : null,
           ]),
           triaged
             ? el('span', {
@@ -3668,17 +3702,18 @@
       async function loadAndRender() {
         clearNode(list);
         try {
-          const messages = await inboxFetchTagged();
+          const messages = await inboxFetchPending();
           window._inboxLastFetch = messages;
           const triaged = state.email_triage || {};
           const pending = messages.filter(m => !triaged[m.id]);
           const done = messages.filter(m => triaged[m.id]);
-          status.textContent = pending.length + ' pending · ' + done.length + ' already triaged · category “' + (state.ui.email_source.category_name || 'Dashboard') + '”';
+          const cat = state.ui.email_source.category_name || 'Dashboard';
+          status.textContent = pending.length + ' pending · ' + done.length + ' already triaged · tagged “' + cat + '” or 🚩 flagged';
           status.style.color = 'var(--text-secondary)';
           if (messages.length === 0) {
             list.appendChild(el('div', {
               style: { padding: '40px 12px', textAlign: 'center', color: 'var(--text-tertiary)', fontStyle: 'italic' },
-            }, 'No emails tagged with this category. Apply the “' + (state.ui.email_source.category_name || 'Dashboard') + '” category in Outlook, then refresh.'));
+            }, 'No emails to triage. Flag one in Outlook (mobile, web, or desktop) or apply the “' + cat + '” category, then refresh.'));
             return;
           }
           pending.forEach(m => list.appendChild(renderRow(m)));
@@ -5637,7 +5672,7 @@
       if (state.ui.email_source && state.ui.email_source.enabled) {
         nav.appendChild(el('button', {
           class: 'nav-drawer-btn',
-          title: 'Pull tagged inbox',
+          title: 'Triage flagged + tagged inbox',
           style: { display: 'inline-flex' },
           onClick: () => openInboxTriageModal(),
         }, '📥'));
