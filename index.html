@@ -4097,6 +4097,19 @@
     let saveTimer = null;
     let snarkLine = pick(SNARK_LINES);
     let currentPlanDate = todayISO();
+    // Tracks the real-world "today" at last computation. If the day rolls over
+    // while the tab is open and the user hasn't manually navigated to a non-today
+    // date, advance currentPlanDate so the schedule + new tasks land on the
+    // actual current day, not the day the script first booted.
+    let _lastComputedToday = currentPlanDate;
+    function syncTodayIfRolledOver() {
+      const real = todayISO();
+      if (real === _lastComputedToday) return false;
+      const userOnAutoToday = currentPlanDate === _lastComputedToday;
+      _lastComputedToday = real;
+      if (userOnAutoToday) { currentPlanDate = real; return true; }
+      return false;
+    }
     // Inline search filters — ephemeral, not persisted across sessions
     let bankFilterQuery = '';
     let projectFilterQuery = '';
@@ -5681,6 +5694,7 @@
 
     // ---------- Render ----------
     function render() {
+      syncTodayIfRolledOver();
       applyTheme();
       applyAccent();
       applyLayout();
@@ -6868,6 +6882,66 @@
         planDateToggleEl(),
         el('button', { class: 'text-btn', onClick: () => { if (confirm('Clear the plan for ' + label + '?')) clearDayPlan(); } }, 'Clear'),
       ]));
+
+      // Stale-schedule banner: when viewing Today, surface unfinished items still
+      // sitting on yesterday's (or earlier) schedule — usually the result of a
+      // tab being open across midnight before the rollover fix landed.
+      if (isToday) {
+        const todayStr = todayISO();
+        const stale = state.cards.filter(c => {
+          if (!c.scheduled_time || c.done_at || c.archived) return false;
+          if (!contextMatches(contextOf(c, 'card'))) return false;
+          return c.scheduled_time.slice(0, 10) < todayStr;
+        });
+        if (stale.length) {
+          const byDay = {};
+          stale.forEach(c => {
+            const d = c.scheduled_time.slice(0, 10);
+            (byDay[d] = byDay[d] || []).push(c);
+          });
+          const days = Object.keys(byDay).sort().reverse();
+          const mostRecent = days[0];
+          const banner = el('div', {
+            style: {
+              margin: '8px 0 12px', padding: '10px 14px',
+              background: 'rgba(245, 158, 11, 0.08)',
+              border: '1px solid rgba(245, 158, 11, 0.35)',
+              borderRadius: '10px',
+              display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap',
+            },
+          }, [
+            el('span', { style: { fontSize: '16px' } }, '⚠'),
+            el('div', { style: { flex: '1', minWidth: '200px', fontSize: '13px' } }, [
+              el('div', { style: { fontWeight: '600' } }, stale.length + ' unfinished item' + (stale.length === 1 ? '' : 's') + ' on past schedules'),
+              el('div', { style: { fontSize: '11px', color: 'var(--text-secondary)' } },
+                'Most recent: ' + new Date(mostRecent + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) + ' · ' + byDay[mostRecent].length + ' item' + (byDay[mostRecent].length === 1 ? '' : 's')),
+            ]),
+            el('button', {
+              class: 'text-btn',
+              onClick: () => { currentPlanDate = mostRecent; render(); },
+            }, 'Show ' + new Date(mostRecent + 'T00:00:00').toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' })),
+            el('button', {
+              class: 'text-btn primary',
+              title: 'Move all ' + stale.length + ' unfinished items forward to today, keeping their hour:minute',
+              onClick: () => {
+                if (!confirm('Move ' + stale.length + ' item' + (stale.length === 1 ? '' : 's') + ' from past schedules to today (keeping their time-of-day)?')) return;
+                setState(s => {
+                  s.cards.forEach(c => {
+                    if (!c.scheduled_time || c.done_at || c.archived) return;
+                    if (c.scheduled_time.slice(0, 10) >= todayStr) return;
+                    const t = c.scheduled_time.slice(11);
+                    c.scheduled_time = todayStr + 'T' + t;
+                    if (c.due && c.due !== 'today' && c.due !== 'tomorrow' && /^\d{4}-\d{2}-\d{2}$/.test(c.due) && c.due < todayStr) {
+                      c.due = todayStr;
+                    }
+                  });
+                });
+              },
+            }, '↻ Move all to today'),
+          ]);
+          body.appendChild(banner);
+        }
+      }
 
       // Top 3 — collapse to single CTA when none picked, else show standard 3-slot grid
       const priorities = planCards('priority');
@@ -12141,7 +12215,12 @@
       // make it to the gist before the runtime is suspended.
       // pagehide is more reliable than beforeunload on iOS Safari.
       document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'hidden') flushPendingPush();
+        if (document.visibilityState === 'hidden') {
+          flushPendingPush();
+        } else if (document.visibilityState === 'visible') {
+          // If the tab was backgrounded across midnight, snap forward and re-render.
+          if (syncTodayIfRolledOver()) render();
+        }
       });
       window.addEventListener('pagehide', flushPendingPush);
       document.addEventListener('click', (e) => {
