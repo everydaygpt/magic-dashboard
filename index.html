@@ -3905,13 +3905,15 @@
       try { return JSON.parse(text); } catch (e) { return null; }
     }
 
+    let syncConsecutiveFails = 0;
+    let syncLastError = null;
     async function pushToSync(opts) {
       if (!getSyncPat()) return;
       const keepalive = !!(opts && opts.keepalive);
       try {
         syncStatus = 'syncing'; updateSyncBadge();
         const id = await ensureSyncGist();
-        if (!id) { syncStatus = 'error'; updateSyncBadge(); return; }
+        if (!id) { syncStatus = 'error'; syncConsecutiveFails++; updateSyncBadge(); maybeShowSyncErrorBanner(); return; }
         const payload = { ...state, last_updated: new Date().toISOString() };
         await ghApi('/gists/' + id, {
           method: 'PATCH',
@@ -3922,9 +3924,14 @@
         });
         state.last_updated = payload.last_updated;
         syncStatus = 'ok'; lastSyncAt = new Date();
+        syncConsecutiveFails = 0; syncLastError = null;
+        hideSyncErrorBanner();
       } catch (e) {
         console.warn('Sync push failed', e);
         syncStatus = 'error';
+        syncConsecutiveFails++;
+        syncLastError = e.message || String(e);
+        maybeShowSyncErrorBanner();
       }
       updateSyncBadge();
     }
@@ -3967,21 +3974,143 @@
       if (!getSyncPat()) return;
       try {
         syncStatus = 'syncing'; updateSyncBadge();
+        // PAT health probe — fail fast if the token is dead so the user knows
+        // their changes aren't syncing instead of silently working from an
+        // island and getting clobbered later.
+        try {
+          await ghApi('/user');
+        } catch (probeErr) {
+          syncStatus = 'error';
+          syncLastError = 'PAT auth failed: ' + (probeErr.message || probeErr);
+          syncConsecutiveFails++;
+          updateSyncBadge();
+          maybeShowSyncErrorBanner({ patDead: true });
+          return;
+        }
         const remote = await pullFromSync();
         if (!remote) { syncStatus = 'ok'; updateSyncBadge(); return; }
         const localTs = state.last_updated || '';
         const remoteTs = remote.last_updated || '';
         if (remoteTs > localTs) {
+          // CRITICAL DATA-LOSS GUARD: never silently replace local with a
+          // smaller remote. If remote dropped cards, that's a strong signal of
+          // a stale-snapshot push from another tab or a sync race — auto-replace
+          // would be the bug pattern that ate Friday/Saturday's items. Surface
+          // a conflict dialog so the user picks which side wins.
+          const localCount = (state.cards || []).length;
+          const remoteCount = (remote.cards || []).length;
+          if (remoteCount < localCount) {
+            console.warn('Refusing auto-pull: remote has fewer cards', { localCount, remoteCount });
+            syncStatus = 'error';
+            syncLastError = 'Pull refused: remote has ' + remoteCount + ' cards, local has ' + localCount + '. Conflict dialog open.';
+            updateSyncBadge();
+            openSyncConflictModal({ remote, localCount, remoteCount });
+            return;
+          }
           state = migrateState(remote);
           try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
           render();
         }
         syncStatus = 'ok'; lastSyncAt = new Date();
+        syncConsecutiveFails = 0; syncLastError = null;
+        hideSyncErrorBanner();
       } catch (e) {
         console.warn('Sync pull failed', e);
         syncStatus = 'error';
+        syncConsecutiveFails++;
+        syncLastError = e.message || String(e);
+        maybeShowSyncErrorBanner();
       }
       updateSyncBadge();
+    }
+
+    // Sync error banner — sticky bar at the top of the app when sync is broken.
+    // Goal: never let the user keep working in an island while sync is silently
+    // failing (because a later reload could clobber).
+    function ensureSyncBanner() {
+      let bar = document.getElementById('sync-error-banner');
+      if (bar) return bar;
+      bar = document.createElement('div');
+      bar.id = 'sync-error-banner';
+      bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:200;background:#7f1d1d;color:#fff;padding:10px 16px;display:none;font-size:13px;font-family:Inter,system-ui,sans-serif;box-shadow:0 4px 18px rgba(0,0,0,0.4);';
+      document.body.appendChild(bar);
+      return bar;
+    }
+    function maybeShowSyncErrorBanner(opts) {
+      if (syncConsecutiveFails < 2 && !(opts && opts.patDead)) return;
+      const bar = ensureSyncBanner();
+      while (bar.firstChild) bar.removeChild(bar.firstChild);
+      const isPatDead = !!(opts && opts.patDead) || /401|403|auth/i.test(syncLastError || '');
+      const msg = document.createElement('span');
+      msg.style.cssText = 'flex:1;margin-right:12px;';
+      msg.textContent = isPatDead
+        ? '⚠ Sync broken — your GitHub PAT may have expired. Your changes are saving locally only and could be lost on next reload. Generate a new fine-grained PAT (gist scope) and paste it in Settings → Sync.'
+        : '⚠ Sync failing (' + syncConsecutiveFails + ' tries) — last error: ' + (syncLastError || 'unknown') + '. Changes are local-only until sync recovers.';
+      const retry = document.createElement('button');
+      retry.textContent = 'Retry now';
+      retry.style.cssText = 'background:#fff;color:#7f1d1d;border:0;border-radius:6px;padding:5px 12px;font-weight:600;cursor:pointer;margin-right:6px;';
+      retry.onclick = () => { hideSyncErrorBanner(); pushToSync(); };
+      const settingsBtn = document.createElement('button');
+      settingsBtn.textContent = 'Open Settings';
+      settingsBtn.style.cssText = 'background:rgba(255,255,255,0.2);color:#fff;border:1px solid rgba(255,255,255,0.4);border-radius:6px;padding:5px 12px;font-weight:600;cursor:pointer;margin-right:6px;';
+      settingsBtn.onclick = () => openSettingsModal();
+      const dismiss = document.createElement('button');
+      dismiss.textContent = '×';
+      dismiss.style.cssText = 'background:transparent;color:#fff;border:0;font-size:20px;cursor:pointer;line-height:1;padding:0 6px;';
+      dismiss.title = 'Hide for now';
+      dismiss.onclick = () => { bar.style.display = 'none'; };
+      bar.style.display = 'flex';
+      bar.style.alignItems = 'center';
+      bar.appendChild(msg);
+      bar.appendChild(retry);
+      bar.appendChild(settingsBtn);
+      bar.appendChild(dismiss);
+    }
+    function hideSyncErrorBanner() {
+      const bar = document.getElementById('sync-error-banner');
+      if (bar) bar.style.display = 'none';
+    }
+
+    // Opens a blocking dialog when a pull would shrink local data. Lets the
+    // user choose: keep local (and overwrite remote with current state), keep
+    // remote (and lose local additions), or inspect both side-by-side.
+    function openSyncConflictModal(ctx) {
+      const remote = ctx.remote || {};
+      const localCount = ctx.localCount;
+      const remoteCount = ctx.remoteCount;
+      const dropped = localCount - remoteCount;
+      // Save a backup snapshot of local cards immediately, regardless of choice
+      const backupKey = 'cmd_state_backup_' + new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
+      try { localStorage.setItem(backupKey, JSON.stringify(state)); } catch (e) {}
+      openModal([
+        el('h3', { style: { color: '#f43f5e' } }, '⚠ Sync conflict — possible data loss'),
+        el('p', {}, 'The remote gist has ' + remoteCount + ' cards but this device has ' + localCount + ' (' + dropped + ' fewer on remote). Auto-replacing local would delete those ' + dropped + ' cards.'),
+        el('p', { style: { fontSize: '12px', color: 'var(--text-tertiary)' } }, 'A backup of your current local state has been saved to localStorage[' + backupKey + '] before any choice you make.'),
+        el('p', { style: { fontWeight: '600', marginTop: '12px' } }, 'Pick the side that has the data you want to keep:'),
+        el('div', { class: 'modal-actions', style: { flexDirection: 'column', gap: '8px', alignItems: 'stretch' } }, [
+          el('button', {
+            class: 'primary',
+            onClick: () => {
+              closeModal();
+              pushToSync();
+            },
+          }, '↑ Keep local (' + localCount + ' cards) — push to remote'),
+          el('button', {
+            class: 'danger',
+            onClick: () => {
+              if (!confirm('Replace local with remote (' + remoteCount + ' cards)? You will lose ' + dropped + ' cards from this device.\nA backup is saved at localStorage[' + backupKey + ']')) return;
+              state = migrateState(remote);
+              try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+              closeModal();
+              render();
+              syncStatus = 'ok'; lastSyncAt = new Date(); updateSyncBadge();
+            },
+          }, '↓ Use remote (' + remoteCount + ' cards) — DELETE ' + dropped + ' local cards'),
+          el('button', {
+            onClick: () => { closeModal(); },
+          }, '× Decide later (stay local, don’t sync until I choose)'),
+        ]),
+      ]);
     }
 
     function exportState() {
