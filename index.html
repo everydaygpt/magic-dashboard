@@ -4299,38 +4299,50 @@
         const remoteTs = remote.last_updated || '';
         if (remoteTs > localTs) {
           // CRITICAL DATA-LOSS GUARD: never silently replace local with a
-          // remote that lost data. Two regression signals trigger the
+          // remote that lost data. Three regression signals trigger the
           // conflict modal instead of an auto-replace:
-          //   (a) remote has fewer cards than local — classic stale-snapshot
-          //       push from another tab/device.
-          //   (b) remote has fewer "done today" markers than local — a stale
-          //       tab can push a snapshot that re-opens completions; card
-          //       counts match, but progress vanishes. (User-reported bug.)
+          //   (a) remote has fewer cards than local
+          //   (b) remote has fewer "done today" markers than local
+          //   (c) remote has fewer cards scheduled today than local — catches
+          //       a stale tab clobbering today's schedule assignments while
+          //       card counts and done counts match (real bug Chuck hit).
           const localCount = (state.cards || []).length;
           const remoteCount = (remote.cards || []).length;
           const todayStr = todayISO();
           const countDoneToday = (cards) => (cards || []).filter(c => {
             if (!c.done_at) return false;
             const d = c.done_at.length >= 10 ? c.done_at.slice(0, 10) : null;
-            // Use full localDateOfISO so UTC-suffixed timestamps map to local date
             return localDateOfISO(c.done_at) === todayStr || d === todayStr;
+          }).length;
+          const countScheduledToday = (cards) => (cards || []).filter(c => {
+            if (!c.scheduled_time) return false;
+            return c.scheduled_time.slice(0, 10) === todayStr;
           }).length;
           const localDoneToday = countDoneToday(state.cards);
           const remoteDoneToday = countDoneToday(remote.cards);
+          const localSchedToday = countScheduledToday(state.cards);
+          const remoteSchedToday = countScheduledToday(remote.cards);
           const cardsRegress = remoteCount < localCount;
           const completionsRegress = remoteDoneToday < localDoneToday;
-          if (cardsRegress || completionsRegress) {
+          // Guard against scheduled-today regressions, but allow a small
+          // tolerance (1 card) because a recurring card legitimately rolls
+          // off the schedule when its instance advances on day-roll.
+          const scheduledRegress = (localSchedToday - remoteSchedToday) >= 2;
+          if (cardsRegress || completionsRegress || scheduledRegress) {
             const reason = cardsRegress
               ? 'remote has ' + remoteCount + ' cards, local has ' + localCount
-              : 'remote has ' + remoteDoneToday + ' done-today, local has ' + localDoneToday;
-            console.warn('Refusing auto-pull:', reason, { cardsRegress, completionsRegress });
+              : completionsRegress
+                ? 'remote has ' + remoteDoneToday + ' done-today, local has ' + localDoneToday
+                : 'remote has ' + remoteSchedToday + ' scheduled-today, local has ' + localSchedToday;
+            console.warn('Refusing auto-pull:', reason, { cardsRegress, completionsRegress, scheduledRegress });
             syncStatus = 'error';
             syncLastError = 'Pull refused: ' + reason + '. Conflict dialog open.';
             updateSyncBadge();
             openSyncConflictModal({
               remote, localCount, remoteCount,
               localDoneToday, remoteDoneToday,
-              regressionKind: cardsRegress ? 'cards' : 'completions',
+              localSchedToday, remoteSchedToday,
+              regressionKind: cardsRegress ? 'cards' : completionsRegress ? 'completions' : 'schedule',
             });
             return;
           }
@@ -4435,15 +4447,21 @@
       const dropped = Math.max(0, localCount - remoteCount);
       const localDoneToday = ctx.localDoneToday;
       const remoteDoneToday = ctx.remoteDoneToday;
+      const localSchedToday = ctx.localSchedToday;
+      const remoteSchedToday = ctx.remoteSchedToday;
       const droppedDone = (localDoneToday != null && remoteDoneToday != null)
         ? Math.max(0, localDoneToday - remoteDoneToday) : 0;
+      const droppedSched = (localSchedToday != null && remoteSchedToday != null)
+        ? Math.max(0, localSchedToday - remoteSchedToday) : 0;
       const kind = ctx.regressionKind || 'cards';
       // Save a backup snapshot of local cards immediately, regardless of choice
       const backupKey = 'cmd_state_backup_' + new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
       try { localStorage.setItem(backupKey, JSON.stringify(state)); } catch (e) {}
       const summary = kind === 'cards'
         ? 'The remote gist has ' + remoteCount + ' cards but this device has ' + localCount + ' (' + dropped + ' fewer on remote). Auto-replacing local would delete those ' + dropped + ' cards.'
-        : 'The remote gist shows ' + remoteDoneToday + ' tasks done today; this device has ' + localDoneToday + ' (' + droppedDone + ' completion' + (droppedDone === 1 ? '' : 's') + ' would be reverted). Likely cause: another tab/device pushed a stale snapshot after you completed those tasks.';
+        : kind === 'completions'
+          ? 'The remote gist shows ' + remoteDoneToday + ' tasks done today; this device has ' + localDoneToday + ' (' + droppedDone + ' completion' + (droppedDone === 1 ? '' : 's') + ' would be reverted). Likely cause: another tab/device pushed a stale snapshot after you completed those tasks.'
+          : 'The remote gist shows ' + remoteSchedToday + ' tasks scheduled today; this device has ' + localSchedToday + ' (' + droppedSched + ' schedule slot' + (droppedSched === 1 ? '' : 's') + ' would be cleared). Likely cause: another tab/device pushed a stale snapshot after you scheduled those tasks.';
       openModal([
         el('h3', { style: { color: '#f43f5e' } }, '⚠ Sync conflict — possible data loss'),
         el('p', {}, summary),
