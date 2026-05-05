@@ -4833,7 +4833,10 @@
         .sort((a, b) => a.position - b.position);
     }
     function visibleBankCards() {
-      return bankCards().filter(c => contextMatches(c.context));
+      // Use contextOf (resolves through project for project cards) not raw
+      // c.context — project cards usually have c.context=null and inherit
+      // their work/personal context from the parent project.
+      return bankCards().filter(c => contextMatches(contextOf(c, 'card')));
     }
     function projectCardCount(id) { return state.cards.filter(c => c.project_id === id && !c.archived).length; }
     function todayCards() {
