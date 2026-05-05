@@ -5162,14 +5162,12 @@
       return archivedCards().filter(c => contextMatches(contextOf(c, 'card')));
     }
     function bankCards() {
-      // Bank = "no date assigned at all". A card with `due` set (today,
-      // tomorrow, or a specific YYYY-MM-DD) lives on its target date's
-      // schedule view, not the bank. Cards with scheduled_time are already
-      // excluded. Result: bank stays a parking lot for genuinely undated
-      // work; recurring tasks that have advanced to a future due date stop
-      // cluttering it.
+      // Bank excludes anything on the schedule (has scheduled_time) and
+      // anything done/archived/info. Cards with `due` but no scheduled_time
+      // still appear here — they're on a date but haven't been pinned to a
+      // time slot yet, and the user expects them visible while they decide.
       return state.cards
-        .filter(c => !c.archived && !c.done_at && !c.scheduled_time && !c.due && !isInfoCard(c))
+        .filter(c => !c.archived && !c.done_at && !c.scheduled_time && !isInfoCard(c))
         .sort((a, b) => {
           const aDue = resolveDueISO(a.due);
           const bDue = resolveDueISO(b.due);
