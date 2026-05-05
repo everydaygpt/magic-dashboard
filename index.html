@@ -7217,7 +7217,29 @@
       const save = () => {
         if (!title.trim()) { titleInput.focus(); return; }
         const dur = duration === '' || duration == null ? null : parseInt(duration, 10);
-        const schedTime = composeScheduledTime(due, timeHHMM);
+        // Preserve the existing scheduled_time if the user didn't change time
+        // or due. composeScheduledTime returns null when due is null OR time is
+        // empty, which previously wiped the schedule slot for a card that was
+        // dropped onto the schedule directly (no due field set). Fallback: if
+        // we have a timeHHMM but no due, anchor the time to the existing
+        // scheduled_time's date. If user fully cleared both, scheduled_time
+        // goes null (intentional: "remove from schedule").
+        let schedTime = composeScheduledTime(due, timeHHMM);
+        if (!schedTime && timeHHMM && c.scheduled_time) {
+          // User has a time but no resolvable due — keep on the same date.
+          const existingDate = c.scheduled_time.slice(0, 10);
+          if (/^\d{4}-\d{2}-\d{2}$/.test(existingDate)) {
+            schedTime = existingDate + 'T' + timeHHMM + ':00';
+          }
+        }
+        if (!timeHHMM && !c.scheduled_time) {
+          // Neither set before nor now — leave scheduled_time as null.
+          schedTime = null;
+        } else if (!timeHHMM && c.scheduled_time && !due) {
+          // User opened a scheduled card, didn't touch time or due — preserve
+          // the existing schedule slot exactly.
+          schedTime = c.scheduled_time;
+        }
         updateCard(cardId, {
           title: title.trim(), notes: notes.trim(), due, context, recurrence,
           recurrence_day: recurrence === 'weekly' ? recurrenceDay : null,
