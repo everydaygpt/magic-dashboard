@@ -1325,6 +1325,21 @@
     .card-pill.tomorrow { color: #60a5fa; border-color: rgba(96, 165, 250, 0.3); background: rgba(96, 165, 250, 0.08); }
     .card-pill.scheduled { color: #a78bfa; border-color: rgba(167, 139, 250, 0.3); background: rgba(167, 139, 250, 0.08); }
     .card-pill.plan { color: #f472b6; border-color: rgba(244, 114, 182, 0.3); background: rgba(244, 114, 182, 0.08); }
+    .card-pill.quick-today {
+      cursor: pointer; opacity: 0.5;
+      color: var(--text-tertiary);
+      background: transparent;
+      transition: all 150ms var(--ease);
+    }
+    .card:hover .card-pill.quick-today { opacity: 1; }
+    .card-pill.quick-today:hover {
+      color: #fbbf24;
+      border-color: rgba(251, 191, 36, 0.45);
+      background: rgba(251, 191, 36, 0.12);
+      transform: translateY(-1px);
+    }
+    .project-chip.clickable { transition: transform 120ms var(--ease), box-shadow 120ms var(--ease); }
+    .project-chip.clickable:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(124, 58, 237, 0.25); }
 
     .card.expanded { cursor: default; background: var(--surface-elev); padding: 14px; }
     .card.expanded:hover { transform: none; }
@@ -4556,6 +4571,7 @@
       s.ui = s.ui || { active_view: 'today', theme: 'dark', context_filter: 'all' };
       if (!s.ui.context_filter) s.ui.context_filter = 'all';
       if (!s.ui.last_seen_day) s.ui.last_seen_day = null;
+      if (s.ui.last_project_view === undefined) s.ui.last_project_view = null;
       if (!s.ui.theme_mode) s.ui.theme_mode = 'dark';
       if (s.ui.sound_enabled == null) s.ui.sound_enabled = true;
       if (!Array.isArray(s.ui.idea_categories) || s.ui.idea_categories.length === 0) {
@@ -5549,6 +5565,7 @@
             c.done_at = null;
             c.archived = false;
             c.scheduled_time = null;
+            resetSubtasksDone(c.subtasks);
           } else {
             c.archived = true;
             // If not already scheduled, stamp completion onto today's schedule
@@ -5634,9 +5651,23 @@
         c.due = nextOccurrenceISO(dueISO, c.recurrence, c.recurrence_day, { interval: c.recurrence_interval, unit: c.recurrence_unit });
         c.done_at = null;
         c.scheduled_time = null;
+        resetSubtasksDone(c.subtasks);
         changed = true;
       });
       if (changed) { saveState(); }
+    }
+
+    // Walk the subtask tree and clear `done` on every node. Called when a
+    // recurring card advances to its next occurrence so the new instance
+    // starts fresh — every subtask becomes an open checkbox again.
+    function resetSubtasksDone(subs) {
+      if (!Array.isArray(subs)) return;
+      subs.forEach(st => {
+        if (st && typeof st === 'object') {
+          st.done = false;
+          if (Array.isArray(st.subtasks)) resetSubtasksDone(st.subtasks);
+        }
+      });
     }
 
     function rollMissedSchedules() {
@@ -5831,6 +5862,19 @@
       renderLeftRail();
       renderMain();
       renderRightRail();
+    }
+
+    // Single entry-point for switching views. Persists last-project-view
+    // so `g p` chord and "Back to project" hints can return there.
+    function navigateTo(viewId, opts) {
+      opts = opts || {};
+      const prev = state.ui.active_view;
+      if (prev && projectById(prev)) state.ui.last_project_view = prev;
+      state.ui.active_view = viewId;
+      if (opts.expandedCardId !== undefined) expandedCardId = opts.expandedCardId;
+      saveState();
+      schedulePush();
+      render();
     }
 
     function renderTopNav() {
@@ -6375,18 +6419,20 @@
       const dueLabel = formatDueLabel(c.due);
       const dueISO = resolveDueISO(c.due);
       const pills = [];
-      // Project chip — show for cards belonging to a real project (not the inbox holding area)
+      // Project chip — clickable to jump to that project
       if (c.project_id && c.project_id !== 'inbox') {
         const proj = projectById(c.project_id);
         if (proj) {
           const accent = proj.accent || { from: '#a855f7', to: '#ec4899' };
           pills.push(el('span', {
-            class: 'project-chip',
-            title: 'In project: ' + proj.name,
+            class: 'project-chip clickable',
+            title: 'Open ' + proj.name,
             style: {
               background: 'linear-gradient(135deg, ' + accent.from + '22, ' + accent.to + '22)',
               borderColor: accent.from + '55',
+              cursor: 'pointer',
             },
+            onClick: (e) => { e.stopPropagation(); navigateTo(proj.id); },
           }, [
             el('span', { class: 'project-chip-dot', style: {
               background: 'linear-gradient(135deg, ' + accent.from + ', ' + accent.to + ')' } }),
@@ -9726,6 +9772,22 @@
         node.appendChild(el('div', { class: 'card-title' }, isInfo ? '📌 ' + c.title : c.title));
         if (c.notes) node.appendChild(el('div', { class: 'card-notes-preview' }, c.notes));
         const footer = el('div', { class: 'card-footer' });
+        // Quick-pin to Today — single-click affordance on cards inside project columns.
+        // Hidden for info cards, done cards, and cards already due/scheduled today.
+        const today = todayISO();
+        const alreadyToday = c.due === 'today' || (typeof c.due === 'string' && c.due === today)
+          || (typeof c.scheduled_time === 'string' && c.scheduled_time.slice(0, 10) === today)
+          || c.today_slot;
+        if (!isInfo && !c.done_at && !alreadyToday) {
+          footer.appendChild(el('button', {
+            class: 'card-pill quick-today',
+            title: 'Pin to today (sets due date)',
+            onClick: (e) => {
+              e.stopPropagation();
+              updateCard(c.id, { due: 'today' });
+            },
+          }, '→ Today'));
+        }
         // Task-only pills suppressed on info cards (they shouldn't show due/recur/duration since none of those apply)
         if (!isInfo && c.due) footer.appendChild(duePillEl(c.due));
         if (!isInfo && c.today_slot) footer.appendChild(el('div', { class: 'card-pill plan' }, c.today_slot === 'priority' ? '⭐ Top 3' : c.today_slot));
@@ -11349,12 +11411,22 @@
             const meta = start.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
               + ' · ' + start.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
             const row = el('label', {
-              style: { display: 'flex', gap: '10px', alignItems: 'flex-start', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--border)', cursor: existing ? 'default' : 'pointer', opacity: existing ? '0.55' : '1' },
+              style: {
+                display: 'grid',
+                gridTemplateColumns: '24px 1fr',
+                gap: '10px',
+                alignItems: 'start',
+                padding: '8px 10px',
+                borderRadius: '6px',
+                border: '1px solid var(--border)',
+                cursor: existing ? 'default' : 'pointer',
+                opacity: existing ? '0.55' : '1',
+              },
             }, [
               cb,
-              el('div', { style: { flex: '1', minWidth: '0' } }, [
-                el('div', { style: { fontSize: '13px', fontWeight: '500' } }, evt.subject),
-                el('div', { style: { fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace' } },
+              el('div', { style: { minWidth: '0', overflow: 'hidden' } }, [
+                el('div', { style: { fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', wordBreak: 'break-word' } }, evt.subject || '(no subject)'),
+                el('div', { style: { fontSize: '11px', color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace', marginTop: '3px', wordBreak: 'break-word' } },
                   meta + (evt.location ? ' · ' + evt.location : '') + (existing ? ' · already imported' : '')),
               ]),
             ]);
@@ -12358,11 +12430,39 @@
           renderSnark();
         }
       }, { capture: true });
+      // 'g' chord state — set by `g`, cleared after 800ms or on next chord key.
+      let gChordAt = 0;
+      const inEditableTarget = (t) => {
+        if (!t) return false;
+        const tag = (t.tagName || '').toLowerCase();
+        return tag === 'input' || tag === 'textarea' || tag === 'select' || t.isContentEditable;
+      };
       document.addEventListener('keydown', (e) => {
         if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
           e.preventDefault();
           openCommandPalette();
           return;
+        }
+        // g-chord shortcuts: `g t` → Today, `g p` → last project (or Projects hub)
+        if (!e.metaKey && !e.ctrlKey && !e.altKey && !inEditableTarget(e.target)) {
+          const key = e.key.toLowerCase();
+          const chordActive = gChordAt && (Date.now() - gChordAt) < 800;
+          if (key === 'g' && !chordActive) {
+            gChordAt = Date.now();
+            return;
+          }
+          if (chordActive && (key === 't' || key === 'p')) {
+            e.preventDefault();
+            gChordAt = 0;
+            if (key === 't') navigateTo('today');
+            else {
+              const last = state.ui.last_project_view;
+              const target = last && projectById(last) ? last : 'projects';
+              navigateTo(target);
+            }
+            return;
+          }
+          if (chordActive) gChordAt = 0;
         }
         if (e.key !== 'Escape') return;
         if (document.querySelector('.modal-backdrop')) { closeModal(); return; }
