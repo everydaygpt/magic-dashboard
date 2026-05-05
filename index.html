@@ -6896,26 +6896,33 @@
     function appendBankSections(parent, cards, query) {
       const filtering = !!query;
       const groups = new Map();
+      // Recurring cards get their own pseudo-group so weekly/daily timesheet
+      // and similar reminders don't clutter the project / inbox lists.
       cards.forEach(c => {
-        const pid = c.project_id || 'inbox';
+        const pid = c.recurrence ? '__recurring__' : (c.project_id || 'inbox');
         if (!groups.has(pid)) groups.set(pid, []);
         groups.get(pid).push(c);
       });
       const projectIds = Array.from(groups.keys())
-        .filter(pid => pid !== 'inbox')
+        .filter(pid => pid !== 'inbox' && pid !== '__recurring__')
         .sort((a, b) => {
           const an = (state.projects.find(p => p.id === a) || {}).name || '';
           const bn = (state.projects.find(p => p.id === b) || {}).name || '';
           return an.localeCompare(bn);
         });
       if (groups.has('inbox')) projectIds.push('inbox');
+      // Recurring section last — it's reference noise more than active queue.
+      if (groups.has('__recurring__')) projectIds.push('__recurring__');
 
       const expandedMap = state.ui.bank_expanded || {};
       projectIds.forEach(pid => {
         const groupCards = groups.get(pid);
-        const proj = state.projects.find(p => p.id === pid);
-        const accent = proj && proj.accent ? proj.accent : { from: '#7c3aed', to: '#ec4899' };
-        const projName = proj ? proj.name : 'Inbox';
+        const isRecurring = pid === '__recurring__';
+        const proj = isRecurring ? null : state.projects.find(p => p.id === pid);
+        const accent = isRecurring
+          ? { from: '#64748b', to: '#94a3b8' }
+          : proj && proj.accent ? proj.accent : { from: '#7c3aed', to: '#ec4899' };
+        const projName = isRecurring ? '↻ Recurring' : (proj ? proj.name : 'Inbox');
         const isExpanded = filtering || expandedMap[pid] === true;
 
         const header = el('button', {
