@@ -9524,6 +9524,11 @@
           title: 'Bulk log completions — paste a list, match or create as done',
           onClick: () => openProjectBulkLogModal(proj),
         }, '📝'),
+        el('button', {
+          class: 'icon-btn',
+          title: 'Bulk import tasks — paste a list, create cards in this project',
+          onClick: () => openProjectBulkImportModal(proj),
+        }, '📋'),
         el('button', { class: 'icon-btn', title: 'Archive Done now', onClick: () => {
           const count = proj.columns.filter(c => isDoneColumn(proj, c.id)).reduce((n, c) => n + cardsForColumn(proj.id, c.id).length, 0);
           if (count === 0) { alert('No cards in any Done column.'); return; }
@@ -10764,6 +10769,190 @@
           style: { fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '10px', fontStyle: 'italic' },
         }, subhead),
         el('div', { class: 'modal-label' }, 'Paste a list of things you did (one per line)'),
+        textarea,
+        el('div', { class: 'modal-label', style: { marginTop: '12px' } }, 'Preview'),
+        previewBox,
+        el('div', { class: 'modal-actions' }, [
+          el('button', { onClick: closeModal }, 'Cancel'),
+          applyBtn,
+        ]),
+      ]);
+      setTimeout(() => textarea.focus(), 50);
+      renderPreview();
+    }
+
+    // ---------- Bulk import OPEN tasks (sibling of the bulk log completions
+    // modal). Paste a list, each line becomes an open card in the chosen
+    // column. Indented lines (2+ spaces, or a leading "-" / "*" with indent)
+    // become subtasks of the most recent unindented line. Optional "@ today",
+    // "@ tomorrow", or "@ YYYY-MM-DD" suffix sets the due date for that line.
+    function openProjectBulkImportModal(proj) {
+      if (!proj.columns || proj.columns.length === 0) {
+        alert('This project has no columns yet. Add one first.');
+        return;
+      }
+      const nonDoneCols = proj.columns.filter(c => !isDoneColumn(proj, c.id));
+      const defaultCol = nonDoneCols[0] || proj.columns[0];
+
+      // Column dropdown
+      const colSelect = document.createElement('select');
+      colSelect.style.cssText = 'padding:6px 10px;border-radius:6px;background:var(--card);border:1px solid var(--border);color:var(--text-primary);font-size:12px;';
+      proj.columns.forEach(col => {
+        const o = document.createElement('option');
+        o.value = col.id;
+        o.textContent = col.name + (isDoneColumn(proj, col.id) ? ' (Done)' : '');
+        colSelect.appendChild(o);
+      });
+      colSelect.value = defaultCol.id;
+
+      const textarea = el('textarea', {
+        rows: 10,
+        placeholder: 'One task per line. Indent 2+ spaces (or use "- ") to make it a subtask of the line above.\n\nExample:\nDraft proposal @ tomorrow\n  Outline scope\n  Pull pricing data\nReview with Sarah @ 2026-05-10\nShip the deck',
+        style: {
+          width: '100%', minHeight: '200px',
+          fontFamily: 'inherit', fontSize: '13px', lineHeight: '1.55',
+          padding: '10px 12px',
+          background: 'var(--card)', border: '1px solid var(--border)',
+          borderRadius: '8px', color: 'var(--text-primary)', resize: 'vertical',
+        },
+      });
+
+      const previewBox = el('div', {
+        style: {
+          maxHeight: '260px', overflowY: 'auto',
+          padding: '10px', borderRadius: '8px',
+          background: 'var(--surface-sub)', border: '1px solid var(--border)',
+        },
+      });
+
+      const applyBtn = el('button', { class: 'primary', disabled: true }, 'Import');
+      let parsed = [];
+
+      // Parse a single line: extract indent depth, leading bullet, trailing
+      // "@ <due>" if present.
+      const parseLine = (raw) => {
+        if (!raw || !raw.trim()) return null;
+        const indent = (raw.match(/^[\s]*/)[0] || '').length;
+        let body = raw.replace(/^[\s]*/, '');
+        // Optional bullet — "- ", "* ", "• "
+        body = body.replace(/^[-*•]\s+/, '');
+        // Optional "@ <due>" suffix
+        let due = null;
+        const dueMatch = body.match(/\s+@\s+(today|tomorrow|\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{2,4})\s*$/i);
+        if (dueMatch) {
+          body = body.slice(0, dueMatch.index).trim();
+          let v = dueMatch[1].toLowerCase();
+          if (v === 'today' || v === 'tomorrow') due = v;
+          else if (/^\d{4}-\d{2}-\d{2}$/.test(v)) due = v;
+          else {
+            // m/d/y → YYYY-MM-DD
+            const m = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+            if (m) {
+              const yyyy = m[3].length === 2 ? '20' + m[3] : m[3];
+              due = yyyy + '-' + String(m[1]).padStart(2, '0') + '-' + String(m[2]).padStart(2, '0');
+            }
+          }
+        }
+        if (!body) return null;
+        return { indent, title: body.trim(), due };
+      };
+
+      const renderPreview = () => {
+        clearNode(previewBox);
+        if (parsed.length === 0) {
+          previewBox.appendChild(el('div', {
+            style: { color: 'var(--text-tertiary)', fontStyle: 'italic', fontSize: '12px' },
+          }, 'Paste a list above. Each unindented line becomes a card; indented lines become subtasks.'));
+          applyBtn.disabled = true;
+          applyBtn.textContent = 'Import';
+          return;
+        }
+        // Group: each unindented becomes a card; subsequent indented lines are subtasks
+        const cards = [];
+        parsed.forEach(p => {
+          if (p.indent === 0 || cards.length === 0) {
+            cards.push({ title: p.title, due: p.due, subtasks: [] });
+          } else {
+            cards[cards.length - 1].subtasks.push({ title: p.title, due: p.due });
+          }
+        });
+        previewBox.appendChild(el('div', {
+          style: { fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', fontWeight: '600', fontFamily: 'JetBrains Mono, monospace' },
+        }, cards.length + ' card' + (cards.length === 1 ? '' : 's') + ' · ' + parsed.filter(p => p.indent > 0).length + ' subtask' + (parsed.filter(p => p.indent > 0).length === 1 ? '' : 's')));
+        cards.forEach(c => {
+          const node = el('div', {
+            style: {
+              padding: '8px 10px', marginBottom: '4px',
+              background: 'var(--card)', border: '1px solid var(--border)',
+              borderRadius: '6px', fontSize: '12px',
+            },
+          }, [
+            el('div', { style: { fontWeight: '600' } }, c.title),
+            c.due ? el('div', {
+              style: { fontSize: '10px', color: 'var(--accent-from)', fontFamily: 'JetBrains Mono, monospace', marginTop: '2px' },
+            }, '📅 ' + c.due) : null,
+            ...c.subtasks.map(s => el('div', {
+              style: { fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', paddingLeft: '14px' },
+            }, '↳ ' + s.title + (s.due ? ' · 📅 ' + s.due : ''))),
+          ].filter(Boolean));
+          previewBox.appendChild(node);
+        });
+        applyBtn.disabled = cards.length === 0;
+        applyBtn.textContent = 'Import (' + cards.length + ')';
+        applyBtn._cards = cards;
+      };
+
+      const updateFromText = () => {
+        const lines = textarea.value.split(/\r?\n/);
+        parsed = lines.map(parseLine).filter(Boolean);
+        renderPreview();
+      };
+      textarea.addEventListener('input', updateFromText);
+
+      applyBtn.addEventListener('click', () => {
+        const cards = applyBtn._cards || [];
+        if (cards.length === 0) return;
+        const colId = colSelect.value;
+        if (!confirm('Create ' + cards.length + ' card' + (cards.length === 1 ? '' : 's') + ' in ' + proj.name + '?')) return;
+        setState(s => {
+          let pos = s.cards.filter(c => c.project_id === proj.id && c.column_id === colId && !c.archived).length;
+          cards.forEach(draft => {
+            const newId = uid('card');
+            s.cards.push({
+              id: newId, project_id: proj.id, column_id: colId, position: pos++,
+              title: draft.title, notes: '',
+              due: draft.due || null,
+              today_slot: null, today_position: 0, plan_date: null,
+              context: proj.context || null,
+              done_at: null, archived: false,
+              recurrence: null, recurrence_day: null, recurrence_interval: null, recurrence_unit: null,
+              missed_count: 0, last_missed_at: null,
+              scheduled_time: null, duration_minutes: null,
+              subtasks: (draft.subtasks || []).map(st => ({
+                id: uid('st'), title: st.title, done: false, subtasks: [],
+              })),
+              created_at: now(),
+              source: { kind: 'bulk-import' },
+            });
+            logActivity('card_created', 'Imported "' + draft.title + '"', {
+              project_id: proj.id, source_type: 'card', source_id: newId, context: proj.context,
+            });
+          });
+        });
+        setTimeout(soundAdd, 0);
+        closeModal();
+      });
+
+      openModal([
+        el('h3', {}, 'Bulk import tasks · ' + proj.name),
+        el('div', {
+          style: { fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '10px', fontStyle: 'italic' },
+        }, 'Paste a list of tasks. Indent (2+ spaces, or "- ") to make subtasks. Add "@ today" / "@ tomorrow" / "@ 2026-05-10" at the end of any line to set its due date.'),
+        el('div', { class: 'card-edit-row', style: { marginBottom: '10px' } }, [
+          el('span', { style: { fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.05em', minWidth: '60px' } }, 'Column'),
+          colSelect,
+        ]),
+        el('div', { class: 'modal-label' }, 'Tasks (one per line)'),
         textarea,
         el('div', { class: 'modal-label', style: { marginTop: '12px' } }, 'Preview'),
         previewBox,
