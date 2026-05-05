@@ -5139,8 +5139,14 @@
       return archivedCards().filter(c => contextMatches(contextOf(c, 'card')));
     }
     function bankCards() {
+      // Bank = "no date assigned at all". A card with `due` set (today,
+      // tomorrow, or a specific YYYY-MM-DD) lives on its target date's
+      // schedule view, not the bank. Cards with scheduled_time are already
+      // excluded. Result: bank stays a parking lot for genuinely undated
+      // work; recurring tasks that have advanced to a future due date stop
+      // cluttering it.
       return state.cards
-        .filter(c => !c.archived && !c.done_at && !c.scheduled_time && !isInfoCard(c))
+        .filter(c => !c.archived && !c.done_at && !c.scheduled_time && !c.due && !isInfoCard(c))
         .sort((a, b) => {
           const aDue = resolveDueISO(a.due);
           const bDue = resolveDueISO(b.due);
@@ -7092,23 +7098,49 @@
       const titleInput = el('input', { type: 'text', value: title, onInput: (e) => title = e.target.value });
       const notesArea = el('textarea', { rows: 3, value: '', onInput: (e) => notes = e.target.value, style: { minHeight: '60px' } });
       notesArea.value = notes;
+      // Resolve the current due value into the ISO date that should populate
+      // the visible date input. Handles legacy 'today'/'tomorrow' literal due
+      // values gracefully so old saved cards still surface their date here.
+      const resolveDateInputValue = (d) => {
+        if (!d) return '';
+        if (d === 'today') return todayISO();
+        if (d === 'tomorrow') return tomorrowISO();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+        return '';
+      };
       const dateInput = el('input', {
         type: 'date',
-        value: due && /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : '',
+        value: resolveDateInputValue(due),
         onChange: (e) => { if (e.target.value) { due = e.target.value; refreshDue(); } },
         style: { padding: '4px 6px', borderRadius: '6px', background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--text-secondary)', fontSize: '11px' },
       });
-      const mkDue = (label, val) => el('button', {
-        class: 'due-opt' + (due === val || (val == null && due == null) ? ' selected' : ''),
-        onClick: () => { due = val; dateInput.value = ''; refreshDue(); },
+      // Today/Tomorrow chips set the resolved ISO date instead of the literal
+      // string. Visible benefits: (1) the date input below the chips reflects
+      // the picked date immediately, (2) the date is anchored — a card "due
+      // today" stays anchored to today's date instead of silently rolling
+      // forward day-after-day.
+      const mkDue = (label, kind) => el('button', {
+        class: 'due-opt',
+        onClick: () => {
+          if (kind === 'none') { due = null; dateInput.value = ''; }
+          else if (kind === 'today') { due = todayISO(); dateInput.value = due; }
+          else if (kind === 'tomorrow') { due = tomorrowISO(); dateInput.value = due; }
+          refreshDue();
+        },
       }, label);
-      const noneBtn = mkDue('none', null);
+      const noneBtn = mkDue('none', 'none');
       const todayBtn = mkDue('today', 'today');
       const tomorrowBtn = mkDue('tomorrow', 'tomorrow');
+      // Initial selection so the modal opens with the right chip highlighted.
+      setTimeout(() => refreshDue(), 0);
       const refreshDue = () => {
+        const tISO = todayISO();
+        const tomISO = tomorrowISO();
         noneBtn.classList.toggle('selected', due == null);
-        todayBtn.classList.toggle('selected', due === 'today');
-        tomorrowBtn.classList.toggle('selected', due === 'tomorrow');
+        // Match both legacy literal 'today' and the new ISO form so old cards
+        // still highlight the right chip.
+        todayBtn.classList.toggle('selected', due === 'today' || due === tISO);
+        tomorrowBtn.classList.toggle('selected', due === 'tomorrow' || due === tomISO);
       };
       const ctxToggle = contextToggleEl(context || 'work', (ctx) => {
         context = ctx;
