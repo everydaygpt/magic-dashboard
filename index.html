@@ -6367,11 +6367,18 @@
     }
 
     function applyTheme() {
-      let theme;
+      // Three independent UI preferences (deliberately decoupled):
+      //  - state.ui.context_filter ('all'/'work'/'personal'): item filter only.
+      //    Does NOT change the visual theme — Work and Personal are item
+      //    classifications, not themes. Filtering keeps the same visual shell.
+      //  - state.ui.theme_mode ('dark'/'light'): overall light/dark preference.
+      //    Drives data-theme. Toggleable in Settings -> Display.
+      //  - state.ui.jarvis_mode (bool): cinematic HUD overlay on top of the
+      //    chosen theme. Drives data-jarvis. Toggleable in Settings -> Display.
+      // We keep the existing CSS attribute names ("work"/"personal") to avoid
+      // a global selector rewrite — "work" = dark theme, "personal" = light.
       const jarvis = !!state.ui.jarvis_mode;
-      if (state.ui.context_filter === 'personal') theme = 'personal';
-      else if (jarvis) theme = 'work';        // Jarvis Work is HUD-dark; ignore theme_mode 'light'
-      else theme = state.ui.theme_mode === 'light' ? 'work-light' : 'work';
+      const theme = state.ui.theme_mode === 'light' ? 'personal' : 'work';
       document.documentElement.setAttribute('data-theme', theme);
       document.documentElement.setAttribute('data-jarvis', jarvis ? 'on' : 'off');
     }
@@ -6519,8 +6526,10 @@
       wrap.appendChild(mk('work', 'Work', 'work'));
       wrap.appendChild(mk('personal', 'Personal', 'personal'));
       outer.appendChild(wrap);
-      // Theme toggle — only meaningful when not in personal (personal stays warm twilight)
-      if (state.ui.context_filter !== 'personal') {
+      // Light/dark theme toggle moved to Settings -> Display so the
+      // context pills stay focused on item classification (Work / Personal),
+      // independent from how the dashboard looks. Render skipped here.
+      if (false && state.ui.context_filter !== 'personal') {
         const isLight = state.ui.theme_mode === 'light';
         outer.appendChild(el('button', {
           class: 'icon-btn',
@@ -6697,8 +6706,12 @@
               ]),
             ]);
           };
+          wrap.appendChild(mkToggle('Light theme',
+            'Light slate canvas instead of dark navy. Independent of Work/Personal — those stay as item classifications.',
+            () => state.ui.theme_mode === 'light',
+            (v) => { setState(s => { s.ui.theme_mode = v ? 'light' : 'dark'; }); applyTheme(); }));
           wrap.appendChild(mkToggle('Jarvis mode',
-            'HUD theme overlay (cyan/blue accents in Work, teal/coral in Personal). Replaces blob background with a subtle grid.',
+            'Cinematic HUD overlay: glow accents, scanline grid, richer completion effects. Layers on top of whichever theme you’re using.',
             () => state.ui.jarvis_mode,
             (v) => { setState(s => { s.ui.jarvis_mode = !!v; }); applyTheme(); }));
           wrap.appendChild(mkToggle('Celebration effects',
