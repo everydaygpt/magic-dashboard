@@ -994,6 +994,57 @@
       padding: 0 10px; overflow-y: auto; flex: 1;
       display: flex; flex-direction: column; gap: 6px; margin-top: 6px;
     }
+    .bank-sections-wrap {
+      display: flex; flex-direction: column; gap: 6px;
+      padding: 0 10px; overflow-y: auto; flex: 1; margin-top: 6px;
+    }
+    .bank-sections-wrap .bank-list {
+      padding: 0; margin-top: 0; gap: 6px; flex: 0 0 auto;
+    }
+    .bank-section-header {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 10px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 12px; font-weight: 600;
+      color: var(--text-secondary);
+      cursor: pointer; text-align: left; width: 100%;
+      transition: background 120ms var(--ease), border-color 120ms var(--ease);
+      user-select: none;
+    }
+    .bank-section-header:hover {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: var(--border-strong);
+      color: var(--text-primary);
+    }
+    .bank-section-header.expanded {
+      background: rgba(124, 58, 237, 0.06);
+      border-color: rgba(124, 58, 237, 0.25);
+      color: var(--text-primary);
+    }
+    .bank-section-chevron {
+      font-size: 11px; color: var(--text-tertiary);
+      width: 10px; flex-shrink: 0;
+    }
+    .bank-section-header.expanded .bank-section-chevron { color: var(--accent-from); }
+    .bank-section-dot {
+      width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0;
+    }
+    .bank-section-name {
+      flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .bank-section-count {
+      font-family: 'JetBrains Mono', monospace; font-size: 11px;
+      color: var(--text-tertiary);
+      padding: 1px 8px; background: rgba(255, 255, 255, 0.04);
+      border-radius: 6px; flex-shrink: 0;
+    }
+    html[data-theme="personal"] .bank-section-header { background: rgba(15, 23, 42, 0.02); }
+    html[data-theme="personal"] .bank-section-header:hover { background: rgba(15, 23, 42, 0.05); }
+    html[data-theme="personal"] .bank-section-header.expanded {
+      background: rgba(124, 58, 237, 0.08);
+    }
     .bank-card {
       background: var(--card); border: 1px solid var(--border); border-radius: 10px;
       padding: 10px 12px; font-size: 13px; cursor: grab;
@@ -4585,6 +4636,9 @@
       }));
       s.ui.banner_dismissed = s.ui.banner_dismissed || {};
       s.ui.collapsed_sections = s.ui.collapsed_sections || {};
+      // Bank groups cards by project. Persisted as a {projectId: true} map of
+      // EXPANDED sections — absent means collapsed (the default for new sessions).
+      s.ui.bank_expanded = s.ui.bank_expanded && typeof s.ui.bank_expanded === 'object' ? s.ui.bank_expanded : {};
       s.ui.calendar_sources = Array.isArray(s.ui.calendar_sources) ? s.ui.calendar_sources : [];
       s.email_triage = (s.email_triage && typeof s.email_triage === 'object') ? s.email_triage : {};
       s.ui.email_source = s.ui.email_source && typeof s.ui.email_source === 'object' ? s.ui.email_source : {};
@@ -6390,14 +6444,77 @@
     }
 
     function bankListEl() {
-      const list = el('div', { class: 'bank-list', dataset: { dropKind: 'bank' } });
+      const wrap = el('div', { class: 'bank-sections-wrap', dataset: { dropKind: 'bank' } });
       const cards = visibleBankCards();
       if (cards.length === 0) {
+        const list = el('div', { class: 'bank-list', dataset: { dropKind: 'bank' } });
         list.appendChild(el('div', { class: 'bank-empty' }, EMPTY_COPY.bank));
-      } else {
-        cards.forEach(c => list.appendChild(bankCardEl(c)));
+        wrap.appendChild(list);
+        return wrap;
       }
-      return list;
+      appendBankSections(wrap, cards, '');
+      return wrap;
+    }
+    // Group bank cards by project and render each as a collapsible section
+    // header + (optional) card list. Section state lives in state.ui.bank_expanded
+    // — absent or false = collapsed (default). When a query is active, every
+    // section that has matches is force-expanded so search results are visible
+    // without clicking; the user's persisted state is restored when query clears.
+    function appendBankSections(parent, cards, query) {
+      const filtering = !!query;
+      const groups = new Map();
+      cards.forEach(c => {
+        const pid = c.project_id || 'inbox';
+        if (!groups.has(pid)) groups.set(pid, []);
+        groups.get(pid).push(c);
+      });
+      const projectIds = Array.from(groups.keys())
+        .filter(pid => pid !== 'inbox')
+        .sort((a, b) => {
+          const an = (state.projects.find(p => p.id === a) || {}).name || '';
+          const bn = (state.projects.find(p => p.id === b) || {}).name || '';
+          return an.localeCompare(bn);
+        });
+      if (groups.has('inbox')) projectIds.push('inbox');
+
+      const expandedMap = state.ui.bank_expanded || {};
+      projectIds.forEach(pid => {
+        const groupCards = groups.get(pid);
+        const proj = state.projects.find(p => p.id === pid);
+        const accent = proj && proj.accent ? proj.accent : { from: '#7c3aed', to: '#ec4899' };
+        const projName = proj ? proj.name : 'Inbox';
+        const isExpanded = filtering || expandedMap[pid] === true;
+
+        const header = el('button', {
+          class: 'bank-section-header' + (isExpanded ? ' expanded' : ''),
+          title: isExpanded ? 'Collapse' : 'Expand',
+          onClick: () => {
+            if (filtering) return;
+            setState(s => {
+              s.ui.bank_expanded = s.ui.bank_expanded || {};
+              s.ui.bank_expanded[pid] = !s.ui.bank_expanded[pid];
+            });
+          },
+        }, [
+          el('span', { class: 'bank-section-chevron' }, isExpanded ? '▾' : '▸'),
+          el('span', {
+            class: 'bank-section-dot',
+            style: { background: 'linear-gradient(135deg, ' + accent.from + ', ' + accent.to + ')' },
+          }),
+          el('span', { class: 'bank-section-name' }, projName),
+          el('span', { class: 'bank-section-count' }, String(groupCards.length)),
+        ]);
+        parent.appendChild(header);
+
+        if (isExpanded) {
+          const list = el('div', {
+            class: 'bank-list bank-section-list',
+            dataset: { dropKind: 'bank', bankSection: pid },
+          });
+          groupCards.forEach(c => list.appendChild(bankCardEl(c)));
+          parent.appendChild(list);
+        }
+      });
     }
     function bankCardEl(c) {
       const node = el('div', {
@@ -7347,13 +7464,19 @@
           onClear: () => { bankFilterQuery = ''; render(); },
         }));
       }
-      const list = el('div', { class: 'bank-list today-bank-list', dataset: { dropKind: 'bank' } });
       if (cards.length === 0) {
+        const list = el('div', { class: 'bank-list today-bank-list', dataset: { dropKind: 'bank' } });
         list.appendChild(el('div', { class: 'bank-empty' }, q ? 'No tasks match "' + bankFilterQuery + '".' : EMPTY_COPY.bank));
+        panel.appendChild(list);
       } else {
-        cards.forEach(c => list.appendChild(bankCardEl(c)));
+        const wrap = el('div', { class: 'bank-sections-wrap', dataset: { dropKind: 'bank' } });
+        appendBankSections(wrap, cards, q);
+        // Add today-bank-list class to each section list so existing Sortable
+        // wiring (which selects `.today-bank-list`) picks up every section's
+        // drop target.
+        wrap.querySelectorAll('.bank-list').forEach(l => l.classList.add('today-bank-list'));
+        panel.appendChild(wrap);
       }
-      panel.appendChild(list);
       return panel;
     }
 
