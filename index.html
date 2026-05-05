@@ -4299,18 +4299,39 @@
         const remoteTs = remote.last_updated || '';
         if (remoteTs > localTs) {
           // CRITICAL DATA-LOSS GUARD: never silently replace local with a
-          // smaller remote. If remote dropped cards, that's a strong signal of
-          // a stale-snapshot push from another tab or a sync race — auto-replace
-          // would be the bug pattern that ate Friday/Saturday's items. Surface
-          // a conflict dialog so the user picks which side wins.
+          // remote that lost data. Two regression signals trigger the
+          // conflict modal instead of an auto-replace:
+          //   (a) remote has fewer cards than local — classic stale-snapshot
+          //       push from another tab/device.
+          //   (b) remote has fewer "done today" markers than local — a stale
+          //       tab can push a snapshot that re-opens completions; card
+          //       counts match, but progress vanishes. (User-reported bug.)
           const localCount = (state.cards || []).length;
           const remoteCount = (remote.cards || []).length;
-          if (remoteCount < localCount) {
-            console.warn('Refusing auto-pull: remote has fewer cards', { localCount, remoteCount });
+          const todayStr = todayISO();
+          const countDoneToday = (cards) => (cards || []).filter(c => {
+            if (!c.done_at) return false;
+            const d = c.done_at.length >= 10 ? c.done_at.slice(0, 10) : null;
+            // Use full localDateOfISO so UTC-suffixed timestamps map to local date
+            return localDateOfISO(c.done_at) === todayStr || d === todayStr;
+          }).length;
+          const localDoneToday = countDoneToday(state.cards);
+          const remoteDoneToday = countDoneToday(remote.cards);
+          const cardsRegress = remoteCount < localCount;
+          const completionsRegress = remoteDoneToday < localDoneToday;
+          if (cardsRegress || completionsRegress) {
+            const reason = cardsRegress
+              ? 'remote has ' + remoteCount + ' cards, local has ' + localCount
+              : 'remote has ' + remoteDoneToday + ' done-today, local has ' + localDoneToday;
+            console.warn('Refusing auto-pull:', reason, { cardsRegress, completionsRegress });
             syncStatus = 'error';
-            syncLastError = 'Pull refused: remote has ' + remoteCount + ' cards, local has ' + localCount + '. Conflict dialog open.';
+            syncLastError = 'Pull refused: ' + reason + '. Conflict dialog open.';
             updateSyncBadge();
-            openSyncConflictModal({ remote, localCount, remoteCount });
+            openSyncConflictModal({
+              remote, localCount, remoteCount,
+              localDoneToday, remoteDoneToday,
+              regressionKind: cardsRegress ? 'cards' : 'completions',
+            });
             return;
           }
           state = migrateState(remote);
@@ -4411,13 +4432,21 @@
       const remote = ctx.remote || {};
       const localCount = ctx.localCount;
       const remoteCount = ctx.remoteCount;
-      const dropped = localCount - remoteCount;
+      const dropped = Math.max(0, localCount - remoteCount);
+      const localDoneToday = ctx.localDoneToday;
+      const remoteDoneToday = ctx.remoteDoneToday;
+      const droppedDone = (localDoneToday != null && remoteDoneToday != null)
+        ? Math.max(0, localDoneToday - remoteDoneToday) : 0;
+      const kind = ctx.regressionKind || 'cards';
       // Save a backup snapshot of local cards immediately, regardless of choice
       const backupKey = 'cmd_state_backup_' + new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
       try { localStorage.setItem(backupKey, JSON.stringify(state)); } catch (e) {}
+      const summary = kind === 'cards'
+        ? 'The remote gist has ' + remoteCount + ' cards but this device has ' + localCount + ' (' + dropped + ' fewer on remote). Auto-replacing local would delete those ' + dropped + ' cards.'
+        : 'The remote gist shows ' + remoteDoneToday + ' tasks done today; this device has ' + localDoneToday + ' (' + droppedDone + ' completion' + (droppedDone === 1 ? '' : 's') + ' would be reverted). Likely cause: another tab/device pushed a stale snapshot after you completed those tasks.';
       openModal([
         el('h3', { style: { color: '#f43f5e' } }, '⚠ Sync conflict — possible data loss'),
-        el('p', {}, 'The remote gist has ' + remoteCount + ' cards but this device has ' + localCount + ' (' + dropped + ' fewer on remote). Auto-replacing local would delete those ' + dropped + ' cards.'),
+        el('p', {}, summary),
         el('p', { style: { fontSize: '12px', color: 'var(--text-tertiary)' } }, 'A backup of your current local state has been saved to localStorage[' + backupKey + '] before any choice you make.'),
         el('p', { style: { fontWeight: '600', marginTop: '12px' } }, 'Pick the side that has the data you want to keep:'),
         el('div', { class: 'modal-actions', style: { flexDirection: 'column', gap: '8px', alignItems: 'stretch' } }, [
