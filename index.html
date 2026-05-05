@@ -1624,6 +1624,7 @@
     .schedule-card {
       background: var(--card);
       border: 1px solid var(--border);
+      border-left: 3px solid var(--border);
       border-radius: 8px;
       padding: 6px 10px;
       font-size: 12px;
@@ -1631,6 +1632,10 @@
       display: flex; align-items: center; gap: 8px;
       transition: background 120ms;
     }
+    /* Context stripe — quick "is this work or personal?" without reading.
+       Visible on the All filter view too, since every card has a context. */
+    .schedule-card.ctx-work    { border-left-color: var(--work); }
+    .schedule-card.ctx-personal{ border-left-color: var(--personal); }
     .schedule-card:not(.timeline) + .schedule-card:not(.timeline) { margin-top: 4px; }
     .schedule-card:hover { background: var(--card-hover); }
     .schedule-card.done { opacity: 0.55; text-decoration: line-through; }
@@ -8175,8 +8180,12 @@
         style.left = `calc(${layout.col * colPct}% + ${leftGap}px)`;
         style.width = `calc(${colPct}% - ${leftGap + rightGap}px)`;
       }
+      // Context class lets the left-edge stripe color identify work vs
+      // personal at a glance, even on the All filter.
+      const ctx = contextOf(c, 'card');
+      const ctxClass = ctx === 'work' ? ' ctx-work' : ctx === 'personal' ? ' ctx-personal' : '';
       const card = el('div', {
-        class: 'schedule-card' + (c.done_at ? ' done' : '') + (layout ? ' timeline' : ''),
+        class: 'schedule-card' + (c.done_at ? ' done' : '') + (layout ? ' timeline' : '') + ctxClass,
         dataset: { cardId: c.id },
         style,
         onClick: (e) => {
