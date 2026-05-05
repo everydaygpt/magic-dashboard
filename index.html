@@ -6848,10 +6848,48 @@
         el('div', { class: 'modal-label', style: { marginTop: '10px' } }, 'Estimated duration (optional)'),
         durationInput,
       ];
+      // Project picker — change which project (or "Inbox" for the bank) owns
+      // this card. Selecting a project also drops the card into that project's
+      // first non-Done column; the user can drag from there if they want a
+      // specific column.
+      const projectSelect = (() => {
+        const sel = document.createElement('select');
+        sel.style.cssText = 'padding:6px 10px;border-radius:6px;background:var(--card);border:1px solid var(--border);color:var(--text-primary);font-size:12px;width:100%;';
+        const inboxOpt = document.createElement('option');
+        inboxOpt.value = 'inbox';
+        inboxOpt.textContent = '📥 Inbox (Bank)';
+        sel.appendChild(inboxOpt);
+        const projsSorted = [...state.projects].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        projsSorted.forEach(p => {
+          const o = document.createElement('option');
+          o.value = p.id;
+          o.textContent = p.name + ((p.status && p.status !== 'active') ? ' · ' + p.status : '');
+          sel.appendChild(o);
+        });
+        sel.value = c.project_id || 'inbox';
+        sel.addEventListener('change', () => {
+          const newPid = sel.value;
+          if (newPid === 'inbox' || !newPid) {
+            updateCard(cardId, { project_id: 'inbox', column_id: null });
+            return;
+          }
+          const proj = state.projects.find(p => p.id === newPid);
+          if (!proj || !Array.isArray(proj.columns) || proj.columns.length === 0) {
+            updateCard(cardId, { project_id: newPid, column_id: null });
+            return;
+          }
+          const targetCol = proj.columns.find(col => !isDoneColumn(proj, col.id)) || proj.columns[0];
+          updateCard(cardId, { project_id: newPid, column_id: targetCol.id });
+        });
+        return sel;
+      })();
+
       openModal([
         el('h3', {}, isInfo ? '📌 Edit info card' : 'Edit task'),
         titleInput,
         notesArea,
+        el('div', { class: 'modal-label' }, 'Project'),
+        projectSelect,
         el('div', { class: 'modal-label' }, 'Context'),
         ctxToggle,
         ...taskFields,
