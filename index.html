@@ -5612,28 +5612,25 @@
           becameDone = true;
           const projCtx = c.project_id === 'inbox' ? (c.context || null) : (s.projects.find(p => p.id === c.project_id)?.context || null);
           logActivity('card_done', 'Completed "' + c.title + '"', { project_id: c.project_id === 'inbox' ? null : c.project_id, source_type: 'card', source_id: c.id, context: projCtx });
-          if (c.recurrence) {
-            // Single-instance recurrence: advance due date, clear done, stay in bank
-            const baseISO = resolveDueISO(c.due) || todayISO();
-            c.due = nextOccurrenceISO(baseISO, c.recurrence, c.recurrence_day, { interval: c.recurrence_interval, unit: c.recurrence_unit });
-            c.done_at = null;
-            c.archived = false;
-            c.scheduled_time = null;
-            resetSubtasksDone(c.subtasks);
-          } else {
-            c.archived = true;
-            // If not already scheduled, stamp completion onto today's schedule
-            // at the EXACT moment of completion (no 15-min rounding) so it
-            // reflects when the user actually finished. 15-min default duration
-            // — it's a completion marker, not a planned work block.
-            if (!c.scheduled_time) {
-              const n = new Date();
-              const hh = String(n.getHours()).padStart(2, '0');
-              const mm = String(n.getMinutes()).padStart(2, '0');
-              c.scheduled_time = todayISO() + 'T' + hh + ':' + mm + ':00';
-              c._auto_scheduled = true;
-              if (!c.duration_minutes) c.duration_minutes = 15;
-            }
+          // Recurring AND non-recurring follow the same completion path now:
+          // mark done, archive, stamp scheduled_time. Recurring cards advance
+          // to their next occurrence at midnight via rollRecurringCards (which
+          // knows how to handle archived+done recurring cards). Doing the
+          // advance here would erase the strike-through chip from today's
+          // schedule and the Top 3 slot, which is what the user expects to
+          // see after completing a recurring task during the day.
+          c.archived = true;
+          // If not already scheduled, stamp completion onto today's schedule
+          // at the EXACT moment of completion (no 15-min rounding) so it
+          // reflects when the user actually finished. 15-min default duration
+          // — it's a completion marker, not a planned work block.
+          if (!c.scheduled_time) {
+            const n = new Date();
+            const hh = String(n.getHours()).padStart(2, '0');
+            const mm = String(n.getMinutes()).padStart(2, '0');
+            c.scheduled_time = todayISO() + 'T' + hh + ':' + mm + ':00';
+            c._auto_scheduled = true;
+            if (!c.duration_minutes) c.duration_minutes = 15;
           }
         }
       });
@@ -5685,7 +5682,22 @@
       const today = todayISO();
       let changed = false;
       state.cards.forEach(c => {
-        if (!c.recurrence || c.archived) return;
+        if (!c.recurrence) return;
+        // Completed-then-day-rolled path: a recurring card was marked done
+        // (and archived) on a previous day. Advance to next occurrence so it
+        // re-appears in the bank/schedule, fresh.
+        if (c.archived && c.done_at && localDateOfISO(c.done_at) < today) {
+          const baseISO = resolveDueISO(c.due) || today;
+          c.due = nextOccurrenceISO(baseISO, c.recurrence, c.recurrence_day, { interval: c.recurrence_interval, unit: c.recurrence_unit });
+          c.done_at = null;
+          c.archived = false;
+          c.scheduled_time = null;
+          c._auto_scheduled = false;
+          resetSubtasksDone(c.subtasks);
+          changed = true;
+          return;
+        }
+        if (c.archived) return;
         const dueISO = resolveDueISO(c.due);
         if (!dueISO || dueISO >= today) return;
         if (c.auto_complete) {
