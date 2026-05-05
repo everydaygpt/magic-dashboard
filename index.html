@@ -11771,22 +11771,43 @@
       const enriched = projects.map(p => {
         const cards = state.cards.filter(c => c.project_id === p.id);
         const open = cards.filter(c => !c.archived && !c.done_at).length;
+        // "Last activity" = most recent timestamp across completions AND
+        // creations. A project where you keep adding cards but haven't
+        // completed any in a while is still active work, not stalled.
         const lastDoneMs = cards
           .filter(c => c.done_at)
           .map(c => new Date(c.done_at).getTime())
           .reduce((a, b) => Math.max(a, b), 0);
+        const lastCreatedMs = cards
+          .map(c => c.created_at ? new Date(c.created_at).getTime() : 0)
+          .reduce((a, b) => Math.max(a, b), 0);
+        const lastActivityMs = Math.max(lastDoneMs, lastCreatedMs);
         const doneThisWeek = cards.filter(c => {
           if (!c.done_at) return false;
           return (Date.now() - new Date(c.done_at).getTime()) / 86400000 < 7;
         }).length;
-        const daysSince = lastDoneMs ? Math.floor((Date.now() - lastDoneMs) / 86400000) : null;
+        const daysSinceDone = lastDoneMs ? Math.floor((Date.now() - lastDoneMs) / 86400000) : null;
+        const daysSinceActivity = lastActivityMs ? Math.floor((Date.now() - lastActivityMs) / 86400000) : null;
+        // The label shown in the meta line — keep using "last done" so users
+        // can tell when they last shipped vs just edited.
+        const daysSince = daysSinceDone;
 
         let status, statusClass;
-        if (open === 0) { status = 'Empty'; statusClass = 'empty'; }
-        else if (daysSince === null) { status = 'New'; statusClass = 'active'; }
-        else if (daysSince <= 3) { status = 'Active'; statusClass = 'active'; }
-        else if (daysSince <= 14) { status = 'Stalled'; statusClass = 'stalled'; }
-        else { status = 'Dormant'; statusClass = 'dormant'; }
+        // Honor the user's manual project status first — on_hold/blocked
+        // are deliberate signals that should not be overridden by activity
+        // heuristics. Same for done (filtered out earlier by visibleActive
+        // but defensive).
+        const manualStatus = (p.status || 'active');
+        if (manualStatus === 'on_hold')   { status = 'On hold'; statusClass = 'dormant'; }
+        else if (manualStatus === 'blocked'){ status = 'Blocked'; statusClass = 'stalled'; }
+        else if (open === 0)               { status = 'Empty';   statusClass = 'empty'; }
+        else if (daysSinceActivity === null) { status = 'New';   statusClass = 'active'; }
+        // Active if there was a completion in the last week OR any activity
+        // (creation/completion) in the last 7 days. 19/wk done with last
+        // completion 4 days ago is clearly active.
+        else if (doneThisWeek > 0 || daysSinceActivity <= 7) { status = 'Active'; statusClass = 'active'; }
+        else if (daysSinceActivity <= 28)  { status = 'Stalled'; statusClass = 'stalled'; }
+        else                               { status = 'Dormant'; statusClass = 'dormant'; }
 
         return { p, open, doneThisWeek, daysSince, status, statusClass };
       }).sort((a, b) => {
