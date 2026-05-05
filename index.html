@@ -136,6 +136,116 @@
       border-right: 1px solid var(--border);
     }
 
+    /* ---------- Jarvis mode — HUD theme overlay (opt-in) ----------
+       Layers tokens on top of the base Work / Personal palettes when
+       data-jarvis="on" is set. Toggle in Settings -> Display. */
+    html[data-jarvis="on"][data-theme="work"] {
+      --canvas: #050914;
+      --panel: rgba(10, 22, 36, 0.72);
+      --panel-solid: #0b1c2c;
+      --card: rgba(15, 35, 52, 0.72);
+      --card-hover: rgba(22, 50, 75, 0.85);
+      --surface-sub: rgba(8, 18, 30, 0.7);
+      --surface-elev: rgba(20, 44, 64, 0.95);
+      --overlay: rgba(143, 220, 255, 0.04);
+      --overlay-strong: rgba(143, 220, 255, 0.10);
+      --border: rgba(143, 220, 255, 0.14);
+      --border-strong: rgba(143, 220, 255, 0.30);
+      --text-primary: #eef8ff;
+      --text-secondary: #8fb7c9;
+      --text-tertiary: #527284;
+      --accent-from: #00d5ff;
+      --accent-to: #2f80ff;
+      --success: #38f8b8;
+      --warning: #ffb84d;
+      --danger: #ff4d6d;
+      --snark-bg: rgba(5, 9, 20, 0.92);
+    }
+    html[data-jarvis="on"][data-theme="personal"] {
+      --canvas: #f5f8fb;
+      --panel: rgba(255, 255, 255, 0.88);
+      --panel-solid: #ffffff;
+      --card: #ffffff;
+      --card-hover: #eef4f9;
+      --surface-sub: #f0f5f9;
+      --surface-elev: #ffffff;
+      --overlay: rgba(0, 70, 110, 0.04);
+      --overlay-strong: rgba(0, 70, 110, 0.10);
+      --border: rgba(0, 80, 120, 0.14);
+      --border-strong: rgba(0, 80, 120, 0.28);
+      --text-primary: #102033;
+      --text-secondary: #4d6578;
+      --text-tertiary: #8aa0af;
+      --accent-from: #00a6c8;
+      --accent-to: #ff7a59;
+      --success: #16b981;
+      --warning: #f59e0b;
+      --danger: #dc2626;
+      --snark-bg: rgba(245, 248, 251, 0.92);
+    }
+    /* Hide the colorful blobs in Jarvis mode; HUD grid takes over. */
+    html[data-jarvis="on"] #bg-blobs .blob { display: none; }
+    /* HUD grid + scanlines — fixed, behind app, low contrast.
+       prefers-reduced-motion disables the slow drift. */
+    html[data-jarvis="on"] #bg-blobs::before,
+    html[data-jarvis="on"] #bg-blobs::after {
+      content: ''; position: absolute; inset: 0; pointer-events: none;
+    }
+    html[data-jarvis="on"] #bg-blobs::before {
+      background-image:
+        linear-gradient(to right, rgba(0, 213, 255, 0.06) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(0, 213, 255, 0.06) 1px, transparent 1px);
+      background-size: 64px 64px;
+      background-position: 0 0;
+      animation: hud-grid-drift 60s linear infinite;
+      mask-image: radial-gradient(ellipse at center, black 60%, transparent 100%);
+      -webkit-mask-image: radial-gradient(ellipse at center, black 60%, transparent 100%);
+    }
+    html[data-jarvis="on"][data-theme="personal"] #bg-blobs::before {
+      background-image:
+        linear-gradient(to right, rgba(0, 90, 130, 0.06) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(0, 90, 130, 0.06) 1px, transparent 1px);
+    }
+    html[data-jarvis="on"] #bg-blobs::after {
+      background:
+        radial-gradient(900px 400px at 18% -10%, rgba(0, 213, 255, 0.10), transparent 70%),
+        radial-gradient(700px 350px at 95% 110%, rgba(47, 128, 255, 0.10), transparent 70%);
+    }
+    html[data-jarvis="on"][data-theme="personal"] #bg-blobs::after {
+      background:
+        radial-gradient(900px 400px at 18% -10%, rgba(0, 166, 200, 0.08), transparent 70%),
+        radial-gradient(700px 350px at 95% 110%, rgba(255, 122, 89, 0.08), transparent 70%);
+    }
+    @keyframes hud-grid-drift {
+      from { background-position: 0 0; }
+      to   { background-position: 64px 64px; }
+    }
+    @keyframes proj-celebration-pop {
+      0%   { transform: scale(0.7); opacity: 0; }
+      55%  { transform: scale(1.06); opacity: 1; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    @keyframes proj-celebration-burst {
+      0%   { transform: translate(-50%, -50%) translate(0, 0) scale(1); opacity: 1; }
+      100% { transform: translate(-50%, -50%) translate(var(--tx), var(--ty)) scale(0.4); opacity: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .project-celebration { animation: none !important; }
+      .project-celebration > span { display: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html[data-jarvis="on"] #bg-blobs::before { animation: none; }
+    }
+    /* Subtle HUD glow on primary panels (Top 3, schedule, today header) */
+    html[data-jarvis="on"] .top3-slot,
+    html[data-jarvis="on"] .schedule {
+      box-shadow: inset 0 0 0 1px rgba(0, 213, 255, 0.10);
+    }
+    html[data-jarvis="on"][data-theme="personal"] .top3-slot,
+    html[data-jarvis="on"][data-theme="personal"] .schedule {
+      box-shadow: inset 0 0 0 1px rgba(0, 166, 200, 0.14);
+    }
+
     /* Morning Magic planner */
     .planner-wrap { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; padding-bottom: 40px; }
     .planner-section { }
@@ -4515,7 +4625,11 @@
         quotes: [],
         email_suggestions: [],
         ui: {
-          active_view: projId, theme: 'dark', context_filter: 'all',
+          // New sessions land on Today. last_project_view is tracked separately
+          // so the user can jump to whatever project they last opened via the
+          // "Return to last project" chip on Today.
+          active_view: 'today', theme: 'dark', context_filter: 'all',
+          last_project_view: projId,
           banner_dismissed: {}, collapsed_sections: {}, calendar_sources: [],
           idea_categories: ['Automation', 'Tech build', 'Home project', 'Book / reading'],
           layout: { left_width: 280, right_width: 340, left_hidden: false, right_hidden: false, task_bank_on_right: false },
@@ -4782,6 +4896,12 @@
       if (s.ui.last_project_view === undefined) s.ui.last_project_view = null;
       if (!s.ui.theme_mode) s.ui.theme_mode = 'dark';
       if (s.ui.sound_enabled == null) s.ui.sound_enabled = true;
+      // Jarvis mode — opt-in HUD theme overlay + grid background. Off by
+      // default so existing users keep the current look. Toggle in Settings.
+      if (s.ui.jarvis_mode == null) s.ui.jarvis_mode = false;
+      // Effects enabled — celebration bursts on project completion. Respects
+      // prefers-reduced-motion at runtime regardless of this flag.
+      if (s.ui.effects_enabled == null) s.ui.effects_enabled = true;
       if (!Array.isArray(s.ui.idea_categories) || s.ui.idea_categories.length === 0) {
         s.ui.idea_categories = ['Automation', 'Tech build', 'Home project', 'Book / reading'];
       }
@@ -5811,7 +5931,12 @@
           }
         }
       });
-      if (becameDone) setTimeout(soundDone, 0);
+      if (becameDone) {
+        // Tiered completion sound: priority slot gets the bigger flourish.
+        const justFinished = state.cards.find(x => x.id === cardId);
+        const top3 = !!(justFinished && justFinished.today_slot === 'priority');
+        setTimeout(top3 ? soundTop3Done : soundDone, 0);
+      }
     }
 
     function resolveDueISO(due) {
@@ -6243,9 +6368,12 @@
 
     function applyTheme() {
       let theme;
+      const jarvis = !!state.ui.jarvis_mode;
       if (state.ui.context_filter === 'personal') theme = 'personal';
+      else if (jarvis) theme = 'work';        // Jarvis Work is HUD-dark; ignore theme_mode 'light'
       else theme = state.ui.theme_mode === 'light' ? 'work-light' : 'work';
       document.documentElement.setAttribute('data-theme', theme);
+      document.documentElement.setAttribute('data-jarvis', jarvis ? 'on' : 'off');
     }
     function toggleThemeMode() {
       setState(s => { s.ui.theme_mode = s.ui.theme_mode === 'light' ? 'dark' : 'light'; });
@@ -6553,6 +6681,36 @@
         el('p', { style: { fontSize: '12px' } }, 'Paste a classic PAT with gist scope (fine-grained PATs don’t support gists). State is stored as a private gist named cmd-state.json. Each device that uses the same PAT syncs to the same gist.'),
         patInput,
         el('div', { style: { display: 'flex', gap: '6px', marginTop: '4px', marginBottom: '18px', flexWrap: 'wrap' } }, [connectBtn, disconnectBtn, bakeBtn].filter(Boolean)),
+
+        el('div', { class: 'modal-label' }, 'Display'),
+        (() => {
+          const wrap = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '18px' } });
+          const mkToggle = (label, hint, getter, setter) => {
+            const cb = el('input', { type: 'checkbox', style: { width: '16px', height: '16px', cursor: 'pointer' } });
+            cb.checked = !!getter();
+            cb.addEventListener('change', () => { setter(cb.checked); });
+            return el('label', { class: 'card-edit-row', style: { cursor: 'pointer', alignItems: 'flex-start' } }, [
+              cb,
+              el('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } }, [
+                el('span', { style: { fontSize: '13px', color: 'var(--text-primary)' } }, label),
+                el('span', { style: { fontSize: '11px', color: 'var(--text-tertiary)' } }, hint),
+              ]),
+            ]);
+          };
+          wrap.appendChild(mkToggle('Jarvis mode',
+            'HUD theme overlay (cyan/blue accents in Work, teal/coral in Personal). Replaces blob background with a subtle grid.',
+            () => state.ui.jarvis_mode,
+            (v) => { setState(s => { s.ui.jarvis_mode = !!v; }); applyTheme(); }));
+          wrap.appendChild(mkToggle('Celebration effects',
+            'Visual bursts when you complete a project. Honors prefers-reduced-motion regardless.',
+            () => state.ui.effects_enabled !== false,
+            (v) => setState(s => { s.ui.effects_enabled = !!v; })));
+          wrap.appendChild(mkToggle('Sound',
+            'Task-completion chimes and tiered flourishes for Top 3 / project completion.',
+            () => !!state.ui.sound_enabled,
+            (v) => setState(s => { s.ui.sound_enabled = !!v; })));
+          return wrap;
+        })(),
 
         el('div', { class: 'modal-label' }, 'Anthropic API key (for email analysis)'),
         anthStatusLine,
@@ -7319,10 +7477,69 @@
 
     function setProjectStatus(projectId, status) {
       if (!PROJECT_STATUS[status]) return;
+      let becameDone = false;
+      let projectName = '';
       setState(s => {
         const p = s.projects.find(x => x.id === projectId);
-        if (p) p.status = status;
+        if (!p) return;
+        const wasDone = (p.status || 'active') === 'done';
+        p.status = status;
+        if (status === 'done' && !wasDone && !p.celebrated_at) {
+          // First time crossing into done — stamp celebrated_at so the burst
+          // fires exactly once across reloads. Cycling status (done -> active
+          // -> done) won't re-celebrate unless celebrated_at is cleared.
+          p.celebrated_at = new Date().toISOString();
+          becameDone = true;
+          projectName = p.name;
+        }
       });
+      if (becameDone) celebrateProjectCompletion(projectId, projectName);
+    }
+
+    // One-time celebration when a project flips to status==='done'. Visual
+    // burst (HTML/CSS only — no external libs), tiered sound, sarcastic copy.
+    // Skipped silently when effects/sound disabled or prefers-reduced-motion.
+    function celebrateProjectCompletion(projectId, projectName) {
+      if (state.ui.sound_enabled) setTimeout(soundProjectDone, 0);
+      const effectsOn = state.ui.effects_enabled !== false;
+      const reduced = prefersReducedMotion();
+      if (!effectsOn || reduced) return;
+      const overlay = document.createElement('div');
+      overlay.className = 'project-celebration';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:300;pointer-events:none;display:flex;align-items:center;justify-content:center;';
+      const card = document.createElement('div');
+      card.style.cssText = 'background:var(--panel-solid);border:1px solid var(--border-strong);border-radius:18px;padding:28px 36px;font-family:Inter,system-ui,sans-serif;text-align:center;box-shadow:0 30px 80px rgba(0,0,0,0.5);animation:proj-celebration-pop 600ms cubic-bezier(.22,1.2,.36,1) both;';
+      const heading = document.createElement('div');
+      heading.style.cssText = 'font-size:14px;letter-spacing:.18em;text-transform:uppercase;color:var(--accent-from);margin-bottom:8px;';
+      heading.textContent = '✦ Project complete ✦';
+      const title = document.createElement('div');
+      title.style.cssText = 'font-size:22px;font-weight:700;color:var(--text-primary);margin-bottom:8px;';
+      title.textContent = projectName || 'Untitled';
+      const sub = document.createElement('div');
+      sub.style.cssText = 'font-size:13px;color:var(--text-secondary);font-style:italic;';
+      const lines = [
+        'Look at you. Finishing things. Almost suspicious.',
+        'Filed under: things that actually shipped.',
+        'Signed, sealed, suspiciously delivered.',
+        'Closing the loop. The loop has been closed.',
+        'Mission complete. Try not to start three more.',
+      ];
+      sub.textContent = lines[Math.floor(Math.random() * lines.length)];
+      card.appendChild(heading);
+      card.appendChild(title);
+      card.appendChild(sub);
+      // Confetti burst — small absolutely-positioned dots animating out
+      for (let i = 0; i < 18; i++) {
+        const dot = document.createElement('span');
+        const angle = (i / 18) * Math.PI * 2;
+        const dist = 90 + Math.random() * 70;
+        dot.style.cssText = 'position:absolute;width:8px;height:8px;border-radius:50%;left:50%;top:50%;background:linear-gradient(135deg,var(--accent-from),var(--accent-to));animation:proj-celebration-burst 900ms ease-out both;--tx:' + Math.cos(angle) * dist + 'px;--ty:' + Math.sin(angle) * dist + 'px;';
+        overlay.appendChild(dot);
+      }
+      overlay.appendChild(card);
+      document.body.appendChild(overlay);
+      setTimeout(() => { overlay.style.transition = 'opacity 300ms'; overlay.style.opacity = '0'; }, 1600);
+      setTimeout(() => { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); }, 2000);
     }
 
     function projectStatusPillEl(p, opts) {
@@ -7414,10 +7631,34 @@
       const plannedCount = state.cards.filter(c => c.today_slot && c.plan_date === currentPlanDate && contextMatches(contextOf(c, 'card'))).length;
       const dueCount = isToday ? todayCards().length : 0;
       header.appendChild(el('div', { class: 'main-subtitle' }, plannedCount + ' planned' + (isToday ? ' · ' + dueCount + ' due today' : '')));
+      // Return-to-last-project chip — shown only on Today, only when the user
+      // has a remembered last project that still exists. Routes through the
+      // existing navigateTo() helper to keep last_project_view consistent.
+      const lastProjId = state.ui && state.ui.last_project_view;
+      const lastProj = lastProjId ? projectById(lastProjId) : null;
+      const returnChip = (isToday && lastProj) ? el('button', {
+        class: 'text-btn',
+        title: 'Return to ' + lastProj.name,
+        style: {
+          fontSize: '11px', padding: '4px 10px', borderRadius: '12px',
+          background: 'linear-gradient(135deg, ' + lastProj.accent.from + '22, ' + lastProj.accent.to + '22)',
+          border: '1px solid ' + lastProj.accent.from + '44',
+          color: 'var(--text-primary)', whiteSpace: 'nowrap',
+        },
+        onClick: () => navigateTo(lastProj.id),
+      }, [
+        el('span', { style: {
+          display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%',
+          marginRight: '6px', verticalAlign: 'middle',
+          background: 'linear-gradient(135deg, ' + lastProj.accent.from + ', ' + lastProj.accent.to + ')',
+        } }),
+        '↩ ' + lastProj.name,
+      ]) : null;
       header.appendChild(el('div', { class: 'main-actions' }, [
+        returnChip,
         planDateToggleEl(),
         el('button', { class: 'text-btn', onClick: () => { if (confirm('Clear the plan for ' + label + '?')) clearDayPlan(); } }, 'Clear'),
-      ]));
+      ].filter(Boolean)));
 
       // Stale-schedule banner: when viewing Today, surface unfinished items still
       // sitting on yesterday's (or earlier) schedule — usually the result of a
@@ -13027,6 +13268,25 @@
     ]); }
     // Soft blip for add
     function soundAdd() { playTone(880, 0.06, 'sine', 0.08); }
+    // Top 3 completion — slightly bigger flourish than soundDone. Three notes
+    // climbing into a held high. Played when a card with today_slot==='priority'
+    // gets completed. Falls back to soundDone if user disabled sound.
+    function soundTop3Done() { playSeq([
+      { freq: 587.33, dur: 0.08, type: 'triangle', gain: 0.14 },
+      { freq: 783.99, dur: 0.08, type: 'triangle', gain: 0.14 },
+      { freq: 1046.50, dur: 0.10, type: 'triangle', gain: 0.16 },
+      { freq: 1318.51, dur: 0.28, type: 'sine',     gain: 0.20 },
+    ]); }
+    // Project completion — five-note ascending major scale into a sustained
+    // chord-ish double-stop. The big, satisfying one. Used by markProjectDone.
+    function soundProjectDone() { playSeq([
+      { freq: 523.25, dur: 0.09, type: 'triangle', gain: 0.16 },
+      { freq: 659.25, dur: 0.09, type: 'triangle', gain: 0.16 },
+      { freq: 783.99, dur: 0.09, type: 'triangle', gain: 0.16 },
+      { freq: 987.77, dur: 0.10, type: 'triangle', gain: 0.18 },
+      { freq: 1318.51,dur: 0.40, type: 'sine',     gain: 0.22 },
+      { freq: 1046.50,dur: 0.40, type: 'sine',     gain: 0.16, step: 0 },
+    ]); }
     // Fanfare for streak milestones (5, 10, 25, 50, 100)
     function soundStreak() { playSeq([
       { freq: 523.25, dur: 0.1, type: 'square', gain: 0.1 },
@@ -13034,6 +13294,12 @@
       { freq: 783.99, dur: 0.1, type: 'square', gain: 0.1 },
       { freq: 1046.50, dur: 0.28, type: 'square', gain: 0.14 },
     ]); }
+    // Cheap proxy for the user's prefers-reduced-motion media-query result.
+    // Used to suppress big visual celebrations even if effects are enabled.
+    function prefersReducedMotion() {
+      try { return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; }
+      catch (e) { return false; }
+    }
     function isStreakMilestone(n) { return n === 5 || n === 10 || n === 25 || n === 50 || n === 100; }
 
     // ---------- Animation helpers ----------
@@ -13085,6 +13351,15 @@
       rollRecurringCards();
       rollMissedSchedules();
       attachLayoutHandlers();
+      // Today is the front door. After unlock/startup we snap to Today; if the
+      // user was on a project we remember it as last_project_view so the
+      // "Return to last project" chip can take them back. Project-creation
+      // flow runs AFTER init, mutates active_view directly, and re-renders —
+      // so this snap doesn't steal focus from "open the brand-new project".
+      if (state.ui && state.ui.active_view && projectById(state.ui.active_view)) {
+        state.ui.last_project_view = state.ui.active_view;
+      }
+      state.ui.active_view = 'today';
       render();
       renderSnark();
       updateSyncBadge();
