@@ -3259,6 +3259,18 @@
 
     const STORAGE_KEY = 'cmd_state_v1';
     const SAVE_DEBOUNCE = 300;
+    // CDN dependency probes — Sortable and MSAL come from CDNs in <head>. If
+    // either fails to load (offline, blocked, CDN outage), the app should
+    // degrade rather than hard-crash on the first call. We replace missing
+    // globals with no-op stubs so call sites don't ReferenceError, and track
+    // which deps are missing for the user-facing banner.
+    if (typeof window.Sortable === 'undefined') {
+      window.Sortable = { create: function () { return { destroy: function () {} }; } };
+      window._cdnMissing = (window._cdnMissing || []).concat(['Sortable.js']);
+    }
+    if (typeof window.msal === 'undefined') {
+      window._cdnMissing = (window._cdnMissing || []).concat(['MSAL']);
+    }
     const PW_HASH = '387c287d2b18fc5dd1beb2b931e2901a34d5dfc6689e4f2eeec3c7a0cf0ea0bd';
     // Baked encrypted PAT for cross-device sync. Encrypted with the password via AES-GCM.
     // Paste the output of Settings → "Bake PAT for other devices" here.
@@ -3611,6 +3623,68 @@
         }, p.label)));
     }
 
+    // Sync Health panel for the Settings modal — at-a-glance read-only view of
+    // sync state plus retry / export-backup / open-Sync-section actions. The
+    // PAT itself is intentionally not surfaced here; this section is for
+    // diagnostics. Edits live in the Cloud sync section below.
+    function renderSyncHealthEl() {
+      const wrap = el('div', { style: {
+        display: 'flex', flexDirection: 'column', gap: '6px',
+        padding: '10px 12px', marginBottom: '14px',
+        background: 'var(--surface-sub)', border: '1px solid var(--border)',
+        borderRadius: '8px', fontFamily: 'JetBrains Mono, monospace', fontSize: '11.5px',
+      } });
+      const pat = getSyncPat();
+      const gistId = getSyncGistId();
+      const connected = !!pat;
+      const okColor = '#34d399', warnColor = '#f43f5e', dimColor = 'var(--text-tertiary)';
+      const row = (k, v, color) => el('div', { style: { display: 'flex', gap: '10px' } }, [
+        el('span', { style: { color: dimColor, minWidth: '120px' } }, k),
+        el('span', { style: { color: color || 'var(--text-primary)', flex: '1', wordBreak: 'break-all' } }, v),
+      ]);
+      wrap.appendChild(row('Status', connected
+        ? (syncStatus === 'error' ? 'Error' : syncStatus === 'syncing' ? 'Syncing…' : 'Connected')
+        : 'Not connected', connected && syncStatus !== 'error' ? okColor : warnColor));
+      if (gistId) wrap.appendChild(row('Gist id', gistId.slice(0, 16) + '…'));
+      wrap.appendChild(row('Last sync', lastSyncAt ? lastSyncAt.toLocaleString() : '—'));
+      wrap.appendChild(row('Last updated', state.last_updated || '—'));
+      wrap.appendChild(row('Consecutive fails', String(syncConsecutiveFails || 0),
+        (syncConsecutiveFails || 0) >= 2 ? warnColor : null));
+      if (syncLastError) wrap.appendChild(row('Last error', syncLastError, warnColor));
+      wrap.appendChild(row('Token type', 'Classic PAT · gist scope'));
+
+      const actions = el('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px' } });
+      const retryBtn = el('button', {
+        class: 'text-btn',
+        title: connected ? 'Push current state to the gist now' : 'Connect a PAT first',
+        disabled: !connected,
+        onClick: () => {
+          flushPendingSave();
+          pushToSync();
+          setTimeout(() => { closeModal(); openSettingsModal(); }, 600);
+        },
+      }, '⟳ Retry sync');
+      const backupBtn = el('button', {
+        class: 'text-btn',
+        title: 'Download local state as JSON for safekeeping',
+        onClick: () => {
+          try {
+            const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+            a.href = url; a.download = 'magic-dashboard-backup-' + stamp + '.json';
+            document.body.appendChild(a); a.click();
+            setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+          } catch (e) { alert('Backup failed: ' + e.message); }
+        },
+      }, '⤓ Export backup');
+      actions.appendChild(retryBtn);
+      actions.appendChild(backupBtn);
+      wrap.appendChild(actions);
+      return wrap;
+    }
+
     function renderInboxSettingsEl() {
       const wrap = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '18px' } });
       const es = state.ui.email_source || {};
@@ -3697,6 +3771,29 @@
           await loadAndRender();
         },
       }, '↻ Refresh');
+
+      // Source filter — All / Tagged / Flagged. Modal-local; not persisted.
+      let sourceFilter = 'all';
+      const filterRow = el('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px' } });
+      const mkChip = (val, label) => el('button', {
+        class: 'text-btn',
+        style: {
+          padding: '3px 10px', fontSize: '11px', fontFamily: 'JetBrains Mono, monospace',
+          borderRadius: '12px',
+          background: sourceFilter === val ? 'var(--accent-from)' : 'transparent',
+          color: sourceFilter === val ? '#fff' : 'var(--text-secondary)',
+          border: '1px solid ' + (sourceFilter === val ? 'transparent' : 'var(--border)'),
+          cursor: 'pointer',
+        },
+        onClick: () => { sourceFilter = val; rebuildFilterChips(); rerender(); },
+      }, label);
+      function rebuildFilterChips() {
+        clearNode(filterRow);
+        ['all', 'tagged', 'flagged'].forEach(v => {
+          filterRow.appendChild(mkChip(v, v === 'all' ? 'All' : v === 'tagged' ? '🏷 Tagged' : '🚩 Flagged'));
+        });
+      }
+      rebuildFilterChips();
 
       // dueByMsgId stays in closure so each row's chip clicks update the same store
       const dueByMsgId = {};
@@ -3796,30 +3893,59 @@
         return row;
       }
 
+      // Apply current sourceFilter to a message — used by both initial render
+      // and the chip-toggle re-render.
+      function passesSourceFilter(msg) {
+        if (sourceFilter === 'all') return true;
+        const sig = inboxSourceBadges(msg);
+        if (sourceFilter === 'tagged') return !!sig.tagged;
+        if (sourceFilter === 'flagged') return !!sig.flagged;
+        return true;
+      }
+      // Re-render the list using the cached fetch (no Graph round-trip on
+      // chip toggles; just filter the in-memory message list).
+      function rerender() {
+        const cached = window._inboxLastFetch || [];
+        const triaged = state.email_triage || {};
+        clearNode(list);
+        const filtered = cached.filter(passesSourceFilter);
+        const pending = filtered.filter(m => !triaged[m.id]);
+        const done = filtered.filter(m => triaged[m.id]);
+        const cat = state.ui.email_source.category_name || 'Dashboard';
+        const scopeLabel = sourceFilter === 'all' ? 'tagged “' + cat + '” or 🚩 flagged'
+          : sourceFilter === 'tagged' ? 'tagged “' + cat + '”'
+          : '🚩 flagged';
+        status.textContent = pending.length + ' pending · ' + done.length + ' already triaged · ' + scopeLabel;
+        status.style.color = 'var(--text-secondary)';
+        if (filtered.length === 0) {
+          list.appendChild(el('div', {
+            style: { padding: '40px 12px', textAlign: 'center', color: 'var(--text-tertiary)', fontStyle: 'italic' },
+          }, 'Nothing matches this filter. Try a different chip or apply a category / flag in Outlook.'));
+          return;
+        }
+        pending.forEach(m => list.appendChild(renderRow(m)));
+        if (done.length) {
+          list.appendChild(el('div', {
+            style: { fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', margin: '12px 0 4px' },
+          }, 'Already triaged'));
+          done.forEach(m => list.appendChild(renderRow(m)));
+        }
+      }
+
       async function loadAndRender() {
         clearNode(list);
         try {
           const messages = await inboxFetchPending();
           window._inboxLastFetch = messages;
-          const triaged = state.email_triage || {};
-          const pending = messages.filter(m => !triaged[m.id]);
-          const done = messages.filter(m => triaged[m.id]);
-          const cat = state.ui.email_source.category_name || 'Dashboard';
-          status.textContent = pending.length + ' pending · ' + done.length + ' already triaged · tagged “' + cat + '” or 🚩 flagged';
-          status.style.color = 'var(--text-secondary)';
           if (messages.length === 0) {
+            const cat = state.ui.email_source.category_name || 'Dashboard';
+            status.textContent = '0 pending · tagged or flagged';
             list.appendChild(el('div', {
               style: { padding: '40px 12px', textAlign: 'center', color: 'var(--text-tertiary)', fontStyle: 'italic' },
             }, 'No emails to triage. Flag one in Outlook (mobile, web, or desktop) or apply the “' + cat + '” category, then refresh.'));
             return;
           }
-          pending.forEach(m => list.appendChild(renderRow(m)));
-          if (done.length) {
-            list.appendChild(el('div', {
-              style: { fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', margin: '12px 0 4px' },
-            }, 'Already triaged'));
-            done.forEach(m => list.appendChild(renderRow(m)));
-          }
+          rerender();
         } catch (e) {
           status.textContent = 'Failed: ' + e.message;
           status.style.color = '#f43f5e';
@@ -3828,10 +3954,14 @@
 
       openModal([
         el('h3', {}, '📥 Inbox triage'),
+        el('div', {
+          style: { fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '6px', fontStyle: 'italic' },
+        }, 'Pulls Outlook messages that are tagged or flagged. Use the chips to narrow.'),
         el('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', flexWrap: 'wrap' } }, [
           status,
           refreshBtn,
         ]),
+        filterRow,
         list,
         el('div', { class: 'modal-actions' }, [el('button', { onClick: closeModal }, 'Close')]),
       ]);
@@ -4110,7 +4240,7 @@
       const msg = document.createElement('span');
       msg.style.cssText = 'flex:1;margin-right:12px;';
       msg.textContent = isPatDead
-        ? '⚠ Sync broken — your GitHub PAT may have expired. Your changes are saving locally only and could be lost on next reload. Generate a new fine-grained PAT (gist scope) and paste it in Settings → Sync.'
+        ? '⚠ Sync broken — your GitHub PAT may have expired. Your changes are saving locally only and could be lost on next reload. Generate a new classic PAT with the gist scope and paste it in Settings → Sync.'
         : '⚠ Sync failing (' + syncConsecutiveFails + ' tries) — last error: ' + (syncLastError || 'unknown') + '. Changes are local-only until sync recovers.';
       const retry = document.createElement('button');
       retry.textContent = 'Retry now';
@@ -4135,6 +4265,33 @@
     function hideSyncErrorBanner() {
       const bar = document.getElementById('sync-error-banner');
       if (bar) bar.style.display = 'none';
+    }
+
+    // Top banner shown when a CDN dependency (Sortable, MSAL) failed to load.
+    // Drag-and-drop is disabled in degraded mode (Sortable is stubbed) and
+    // calendar/inbox connect actions surface their own friendly errors.
+    function showCdnDegradedBanner(missing) {
+      let bar = document.getElementById('cdn-degraded-banner');
+      if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'cdn-degraded-banner';
+        bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:199;background:#854d0e;color:#fef3c7;padding:9px 14px;font-size:12.5px;font-family:Inter,system-ui,sans-serif;display:flex;align-items:center;gap:10px;box-shadow:0 3px 14px rgba(0,0,0,0.4);';
+        document.body.appendChild(bar);
+      }
+      while (bar.firstChild) bar.removeChild(bar.firstChild);
+      const issues = [];
+      if (missing.indexOf('Sortable.js') !== -1) issues.push('drag-and-drop is disabled');
+      if (missing.indexOf('MSAL') !== -1) issues.push('Outlook calendar / inbox connect won’t work');
+      const msg = document.createElement('span');
+      msg.style.flex = '1';
+      msg.textContent = '⚠ A library failed to load (' + missing.join(', ') + '). Running in degraded mode — ' + issues.join(', ') + '. Hard-reload (Ctrl+Shift+R) to retry.';
+      const dismiss = document.createElement('button');
+      dismiss.textContent = '×';
+      dismiss.style.cssText = 'background:transparent;color:inherit;border:0;font-size:18px;cursor:pointer;padding:0 6px;line-height:1;';
+      dismiss.title = 'Hide';
+      dismiss.onclick = function () { bar.style.display = 'none'; };
+      bar.appendChild(msg);
+      bar.appendChild(dismiss);
     }
 
     // Opens a blocking dialog when a pull would shrink local data. Lets the
@@ -4690,10 +4847,27 @@
     function saveState() {
       clearTimeout(saveTimer);
       saveTimer = setTimeout(() => {
+        saveTimer = null;
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
         catch (e) { console.warn('Failed to save', e); }
         schedulePush();
       }, SAVE_DEBOUNCE);
+    }
+
+    // Synchronously persist any pending debounced localStorage write and queue
+    // a sync push so it can be flushed via flushPendingPush. Called from
+    // pagehide/visibilitychange so a page-close mid-debounce doesn't drop the
+    // localStorage write — a clobber-by-stale-tab pattern that loses changes.
+    function flushPendingSave() {
+      if (!saveTimer) return;
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+      catch (e) { console.warn('Failed to save (flush)', e); }
+      // Schedule a push so flushPendingPush() can pick it up. This does NOT
+      // mutate state.last_updated — that still only changes on successful push
+      // inside pushToSync(). Sync resilience invariant preserved.
+      schedulePush();
     }
 
     function setState(updater) {
@@ -6267,7 +6441,7 @@
         style: { fontSize: '11px', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-tertiary)', marginBottom: '10px' },
       }, currentPat
         ? 'Connected · gist ' + (getSyncGistId() || '(pending)').slice(0, 12) + '…'
-        : 'Not connected. Paste a fine-grained PAT with gist scope.');
+        : 'Not connected. Paste a classic PAT with gist scope (fine-grained PATs don’t support gists).');
 
       const connectBtn = el('button', {
         class: 'primary',
@@ -6372,9 +6546,11 @@
 
       openModal([
         el('h3', {}, 'Settings'),
+        el('div', { class: 'modal-label' }, 'Sync Health'),
+        renderSyncHealthEl(),
         el('div', { class: 'modal-label' }, 'Cloud sync — GitHub Gist'),
         statusLine,
-        el('p', { style: { fontSize: '12px' } }, 'Paste a fine-grained PAT with gist scope. State is stored as a private gist named cmd-state.json. Each device that uses the same PAT syncs to the same gist.'),
+        el('p', { style: { fontSize: '12px' } }, 'Paste a classic PAT with gist scope (fine-grained PATs don’t support gists). State is stored as a private gist named cmd-state.json. Each device that uses the same PAT syncs to the same gist.'),
         patInput,
         el('div', { style: { display: 'flex', gap: '6px', marginTop: '4px', marginBottom: '18px', flexWrap: 'wrap' } }, [connectBtn, disconnectBtn, bakeBtn].filter(Boolean)),
 
@@ -6389,6 +6565,21 @@
 
         el('div', { class: 'modal-label' }, 'Inbox (Outlook)'),
         renderInboxSettingsEl(),
+
+        el('div', { class: 'modal-label' }, 'Email suggestions history'),
+        (() => {
+          const all = state.email_suggestions || [];
+          const counts = { pending: 0, accepted: 0, dismissed: 0 };
+          all.forEach(s => { counts[s.status] = (counts[s.status] || 0) + 1; });
+          return el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '18px' } }, [
+            el('div', { style: { fontSize: '11px', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-tertiary)' } },
+              counts.pending + ' pending · ' + counts.accepted + ' accepted · ' + counts.dismissed + ' dismissed'),
+            el('button', {
+              disabled: all.length === 0,
+              onClick: () => { closeModal(); openEmailSuggestionsManageModal(); },
+            }, '⋯ Manage / restore dismissed'),
+          ]);
+        })(),
 
         el('div', { class: 'modal-label' }, 'Archive'),
         (() => {
@@ -8868,11 +9059,45 @@
       return (state.email_suggestions || []).filter(s => s.status === 'pending');
     }
 
+    // Validate an email_url before rendering it as an href. The triage agent
+    // is third-party-ish (the user controls it but typos / future regressions
+    // could push javascript: or data: URIs). Only allow http(s); prefer
+    // known webmail hosts so we don't accidentally surface arbitrary links.
+    const SAFE_MAIL_HOSTS = [
+      'outlook.office.com', 'outlook.office365.com', 'outlook.live.com',
+      'outlook.com', 'mail.google.com', 'gmail.com', 'mail.yahoo.com',
+      'mail.proton.me', 'mail.proton.com',
+    ];
+    function safeEmailUrl(raw) {
+      if (typeof raw !== 'string' || !raw) return null;
+      let u;
+      try { u = new URL(raw); } catch (e) { return null; }
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+      // Whitelist known webmail hosts; subdomain match
+      const host = (u.hostname || '').toLowerCase();
+      const ok = SAFE_MAIL_HOSTS.some(h => host === h || host.endsWith('.' + h));
+      if (!ok) return null;
+      return u.href;
+    }
+
     function acceptEmailSuggestion(sugId, opts) {
       opts = opts || {};
+      // Idempotency guard: never create a duplicate card if the suggestion is
+      // already accepted, dismissed, or already has an accepted_card_id. This
+      // protects against double-clicks, stale render targets racing with bulk
+      // "Add all", and concurrent reloads where the prior accept hasn't yet
+      // propagated through render() but is reflected in state.
+      const existing = (state.email_suggestions || []).find(x => x.id === sugId);
+      if (!existing) return null;
+      if (existing.status !== 'pending') return existing.accepted_card_id || null;
+      if (existing.accepted_card_id) return existing.accepted_card_id;
+      let createdCardId = null;
       setState(s => {
         const sug = (s.email_suggestions || []).find(x => x.id === sugId);
         if (!sug) return;
+        // Re-check inside setState — another setState could have flipped it
+        // between the outer guard and this point.
+        if (sug.status !== 'pending' || sug.accepted_card_id) return;
         const card = {
           id: uid('card'),
           project_id: opts.project_id || 'inbox',
@@ -8883,7 +9108,7 @@
             sug.from_name || sug.from_email ? 'From: ' + (sug.from_name || sug.from_email) : '',
             sug.subject ? 'Subject: ' + sug.subject : '',
             sug.raw_excerpt || '',
-            sug.email_url ? '\n' + sug.email_url : '',
+            safeEmailUrl(sug.email_url) ? '\n' + safeEmailUrl(sug.email_url) : '',
           ].filter(Boolean).join('\n'),
           due: sug.suggested_due || null,
           today_slot: null, today_position: 0, plan_date: null,
@@ -8897,16 +9122,111 @@
         s.cards.push(card);
         sug.status = 'accepted';
         sug.accepted_card_id = card.id;
+        createdCardId = card.id;
         logActivity('card_created', 'Accepted email suggestion: "' + card.title + '"', { source_type: 'card', source_id: card.id, context: 'work' });
       });
-      setTimeout(soundAdd, 0);
+      if (createdCardId) setTimeout(soundAdd, 0);
+      return createdCardId;
     }
 
     function dismissEmailSuggestion(sugId) {
+      // Idempotency guard mirroring acceptEmailSuggestion.
+      const existing = (state.email_suggestions || []).find(x => x.id === sugId);
+      if (!existing || existing.status !== 'pending') return;
       setState(s => {
         const sug = (s.email_suggestions || []).find(x => x.id === sugId);
-        if (sug) sug.status = 'dismissed';
+        if (sug && sug.status === 'pending') sug.status = 'dismissed';
       });
+    }
+
+    // Restore a previously dismissed (or accepted) email suggestion back to
+    // pending. Records are not deleted from state.email_suggestions; this is
+    // a soft revert that puts the row back into the triage tray on Today.
+    function restoreEmailSuggestion(sugId) {
+      const existing = (state.email_suggestions || []).find(x => x.id === sugId);
+      if (!existing || existing.status === 'pending') return;
+      setState(s => {
+        const sug = (s.email_suggestions || []).find(x => x.id === sugId);
+        if (!sug) return;
+        // Preserve accepted_card_id so we don't lose the link to the card
+        // already created — restoring is a "let me see this again" action,
+        // not a "delete the card" action.
+        sug.status = 'pending';
+      });
+    }
+
+    // Modal that surfaces accepted + dismissed email suggestions and lets the
+    // user soft-revert them to pending. Doesn't delete history; restoring is
+    // additive (the suggestion shows up in today's tray again).
+    function openEmailSuggestionsManageModal() {
+      const all = state.email_suggestions || [];
+      const accepted = all.filter(s => s.status === 'accepted');
+      const dismissed = all.filter(s => s.status === 'dismissed');
+      const pending = all.filter(s => s.status === 'pending');
+
+      const renderRow = (sug) => {
+        const sender = sug.from_name || sug.from_email || sug.source || '';
+        const when = sug.created_at ? new Date(sug.created_at).toLocaleString() : '';
+        const card = sug.accepted_card_id ? state.cards.find(c => c.id === sug.accepted_card_id) : null;
+        const statusBadge = el('span', {
+          style: {
+            fontSize: '10px', fontFamily: 'JetBrains Mono, monospace',
+            padding: '1px 6px', borderRadius: '4px',
+            color: sug.status === 'pending' ? '#22c55e' : sug.status === 'accepted' ? '#60a5fa' : 'var(--text-tertiary)',
+            border: '1px solid currentColor',
+            whiteSpace: 'nowrap', flexShrink: '0',
+          },
+        }, sug.status);
+        const restoreBtn = sug.status !== 'pending' ? el('button', {
+          class: 'text-btn',
+          style: { padding: '3px 9px', fontSize: '11px', flexShrink: '0' },
+          title: 'Move this suggestion back to pending; the card it created (if any) is kept.',
+          onClick: () => {
+            restoreEmailSuggestion(sug.id);
+            closeModal();
+            openEmailSuggestionsManageModal();
+          },
+        }, '↺ Restore') : null;
+        return el('div', {
+          style: {
+            border: '1px solid var(--border)', borderRadius: '8px', padding: '8px 10px',
+            display: 'flex', flexDirection: 'column', gap: '4px',
+          },
+        }, [
+          el('div', { style: { display: 'flex', gap: '8px', alignItems: 'baseline', flexWrap: 'wrap' } }, [
+            el('div', { style: { flex: '1', minWidth: '0', fontWeight: '600', fontSize: '13px' } }, sug.extracted_action || sug.subject || '(untitled)'),
+            statusBadge,
+            restoreBtn,
+          ]),
+          el('div', { style: { fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace' } },
+            (sender || '') + (when ? ' · ' + when : '') + (card ? ' · → card "' + card.title.slice(0, 40) + '"' : '')),
+        ]);
+      };
+
+      const section = (label, items) => {
+        if (items.length === 0) return null;
+        const wrap = el('div', { style: { marginBottom: '14px' } });
+        wrap.appendChild(el('div', { class: 'modal-label' }, label + ' · ' + items.length));
+        const list = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } });
+        items.slice().reverse().slice(0, 60).forEach(s => list.appendChild(renderRow(s)));
+        if (items.length > 60) {
+          list.appendChild(el('div', { style: { fontSize: '11px', color: 'var(--text-tertiary)', fontStyle: 'italic', textAlign: 'center' } }, '+' + (items.length - 60) + ' older entries hidden'));
+        }
+        wrap.appendChild(list);
+        return wrap;
+      };
+
+      openModal([
+        el('h3', {}, '📧 Email suggestions — history'),
+        el('p', { style: { fontSize: '12px', color: 'var(--text-tertiary)' } },
+          all.length === 0
+            ? 'No email suggestions yet. The triage agent populates this list.'
+            : 'Accepted and dismissed suggestions stay here for dedupe. Restore one to send it back to today’s triage tray.'),
+        section('Pending', pending),
+        section('Dismissed', dismissed),
+        section('Accepted', accepted),
+        el('div', { class: 'modal-actions' }, [el('button', { onClick: closeModal }, 'Close')]),
+      ]);
     }
 
     function renderEmailSuggestionsTray() {
@@ -8924,7 +9244,9 @@
           title: 'Add all pending suggestions to the Bank',
           onClick: () => {
             if (!confirm('Add all ' + pending.length + ' suggestions as tasks?')) return;
-            pending.forEach(s => acceptEmailSuggestion(s.id));
+            // Snapshot ids; acceptEmailSuggestion is idempotent so re-runs are safe.
+            const ids = pending.map(s => s.id);
+            ids.forEach(id => acceptEmailSuggestion(id));
           },
         }, '+ Add all'),
         el('button', {
@@ -8932,9 +9254,15 @@
           title: 'Dismiss everything',
           onClick: () => {
             if (!confirm('Skip all ' + pending.length + ' suggestions?')) return;
-            pending.forEach(s => dismissEmailSuggestion(s.id));
+            const ids = pending.map(s => s.id);
+            ids.forEach(id => dismissEmailSuggestion(id));
           },
         }, '× Skip all'),
+        el('button', {
+          class: 'text-btn',
+          title: 'View accepted / dismissed history; restore any to pending',
+          onClick: () => openEmailSuggestionsManageModal(),
+        }, '⋯ Manage'),
       ]));
 
       const list = el('div', { class: 'email-tray-list' });
@@ -8960,12 +9288,16 @@
           sug.raw_excerpt ? el('div', { class: 'email-suggestion-excerpt' }, sug.raw_excerpt) : null,
         ]),
         el('div', { class: 'email-suggestion-actions' }, [
-          sug.email_url ? el('a', {
-            class: 'icon-btn',
-            href: sug.email_url, target: '_blank', rel: 'noopener',
-            title: 'Open original email',
-            onClick: (e) => e.stopPropagation(),
-          }, '↗') : null,
+          (() => {
+            const safeUrl = safeEmailUrl(sug.email_url);
+            if (!safeUrl) return null;
+            return el('a', {
+              class: 'icon-btn',
+              href: safeUrl, target: '_blank', rel: 'noopener noreferrer',
+              title: 'Open original email',
+              onClick: (e) => e.stopPropagation(),
+            }, '↗');
+          })(),
           el('button', {
             class: 'text-btn',
             title: 'Skip this suggestion',
@@ -12756,6 +13088,10 @@
       render();
       renderSnark();
       updateSyncBadge();
+      // Surface a non-blocking banner if a CDN dependency failed to load.
+      if (window._cdnMissing && window._cdnMissing.length) {
+        showCdnDegradedBanner(window._cdnMissing);
+      }
       // Drawer close handlers
       const backdrop = document.getElementById('drawer-backdrop');
       if (backdrop) backdrop.addEventListener('click', closeDrawers);
@@ -12782,13 +13118,18 @@
       // pagehide is more reliable than beforeunload on iOS Safari.
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'hidden') {
+          // Save first (commits any debounced localStorage write), then push.
+          flushPendingSave();
           flushPendingPush();
         } else if (document.visibilityState === 'visible') {
           // If the tab was backgrounded across midnight, snap forward and re-render.
           if (syncTodayIfRolledOver()) render();
         }
       });
-      window.addEventListener('pagehide', flushPendingPush);
+      window.addEventListener('pagehide', () => {
+        flushPendingSave();
+        flushPendingPush();
+      });
       document.addEventListener('click', (e) => {
         if (e.target.closest('.rail-item') || e.target.closest('.context-pill')) {
           snarkLine = pick(SNARK_LINES);
@@ -12837,6 +13178,92 @@
         }
       });
     }
+
+    // Browser-side smoke check — call window.runSmokeChecks() from DevTools.
+    // Verifies pure-function correctness of the high-risk pieces (migrate
+    // idempotency, URL sanitizer, accept idempotency, save flush) without
+    // mutating user state. Returns a {passed, failed, results} object.
+    window.runSmokeChecks = function () {
+      const results = [];
+      let passed = 0, failed = 0;
+      const t = (label, fn) => {
+        try {
+          const r = fn();
+          if (r === false) { failed++; results.push({ label, ok: false, reason: 'returned false' }); }
+          else { passed++; results.push({ label, ok: true }); }
+        } catch (e) {
+          failed++;
+          results.push({ label, ok: false, reason: e.message });
+        }
+      };
+
+      // 1. migrateState is idempotent: running it twice should not change shape.
+      // Seed must include version:1 — without it, migrateState short-circuits
+      // to defaultState() (legacy/garbage-input handling).
+      t('migrateState idempotent', () => {
+        const seed = { version: 1, cards: [], projects: [], ideas: [], goals: [], notes: [], files: [], activity_log: [], planner_entries: [], books: [], quotes: [], email_suggestions: [], ui: {} };
+        const a = migrateState(JSON.parse(JSON.stringify(seed)));
+        const b = migrateState(JSON.parse(JSON.stringify(a)));
+        return JSON.stringify(a) === JSON.stringify(b);
+      });
+
+      // 2. safeEmailUrl correctness
+      t('safeEmailUrl rejects javascript:', () => safeEmailUrl('javascript:alert(1)') === null);
+      t('safeEmailUrl rejects data:',       () => safeEmailUrl('data:text/html,<x>') === null);
+      t('safeEmailUrl rejects garbage',     () => safeEmailUrl('not a url') === null);
+      t('safeEmailUrl rejects unknown host',() => safeEmailUrl('https://evil.example.com/x') === null);
+      t('safeEmailUrl accepts outlook',     () => /^https:\/\/outlook\.office\.com/.test(safeEmailUrl('https://outlook.office.com/mail/inbox/abc') || ''));
+      t('safeEmailUrl accepts gmail',       () => /^https:\/\/mail\.google\.com/.test(safeEmailUrl('https://mail.google.com/mail/u/0/#inbox/abc') || ''));
+
+      // 3. acceptEmailSuggestion idempotency — accept-twice creates one card
+      t('acceptEmailSuggestion idempotent', () => {
+        const sugId = 'sug_smoke_' + Date.now();
+        const beforeCards = state.cards.length;
+        setState(s => {
+          (s.email_suggestions = s.email_suggestions || []).push({
+            id: sugId, status: 'pending', extracted_action: 'Smoke test action',
+            from_name: 'Tester', subject: 'Test', created_at: new Date().toISOString(),
+          });
+        });
+        const id1 = acceptEmailSuggestion(sugId);
+        const id2 = acceptEmailSuggestion(sugId);
+        const newCards = state.cards.length - beforeCards;
+        // Cleanup
+        setState(s => {
+          s.cards = s.cards.filter(c => c.id !== id1);
+          s.email_suggestions = (s.email_suggestions || []).filter(x => x.id !== sugId);
+        });
+        return id1 === id2 && newCards === 1;
+      });
+
+      // 4. flushPendingSave commits the pending localStorage write synchronously
+      t('flushPendingSave commits before timer fires', () => {
+        const marker = '__smoke_marker__' + Date.now();
+        // Mutate state without going through setState (we just want to test
+        // the saveTimer flush path). Set a value, schedule a save, flush.
+        if (!state.ui) state.ui = {};
+        const prev = state.ui._smoke_marker;
+        state.ui._smoke_marker = marker;
+        saveState();
+        flushPendingSave();
+        const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+        const ok = stored && stored.ui && stored.ui._smoke_marker === marker;
+        // Cleanup — restore prior value and re-save through setState
+        setState(s => { if (prev === undefined) delete s.ui._smoke_marker; else s.ui._smoke_marker = prev; });
+        flushPendingSave();
+        return ok;
+      });
+
+      // 5. Sync resilience invariants are not stubbed
+      t('firstLoadSync exists', () => typeof firstLoadSync === 'function');
+      t('flushPendingSave exists', () => typeof flushPendingSave === 'function');
+      t('flushPendingPush exists', () => typeof flushPendingPush === 'function');
+      t('openSyncConflictModal exists', () => typeof openSyncConflictModal === 'function');
+
+      console.log('Smoke checks:', passed + ' passed,', failed + ' failed');
+      results.forEach(r => console.log((r.ok ? '  ✓ ' : '  ✗ ') + r.label + (r.reason ? ' — ' + r.reason : '')));
+      return { passed, failed, results };
+    };
 
     (async () => {
       await requireAuth();
