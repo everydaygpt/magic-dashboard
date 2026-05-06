@@ -1732,9 +1732,11 @@
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       letter-spacing: 0.02em;
     }
-    /* Cards in timeline view are tighter — hide the project name text, keep dot */
-    .schedule-card.timeline .schedule-card-proj-name { display: none; }
-    .schedule-card.timeline .schedule-card-proj { padding: 2px; border-radius: 50%; }
+    /* Show the project name on timeline cards too — it's the fastest way to
+       identify what the task belongs to without opening the card. The pill
+       already truncates with ellipsis (max-width 110px) so it stays compact
+       on narrow side-by-side cards. */
+    .schedule-card.timeline .schedule-card-proj { max-width: 96px; }
 
     /* ---------- Project status pill (Hub + Project view) ---------- */
     .project-status-pill {
@@ -2307,6 +2309,75 @@
     }
     /* Reset the cascade for nested pulse panels in main */
     .today-cmd .pulse-panel + .pulse-panel { border-top: 0; margin-top: 0; padding-top: 14px; }
+
+    /* Narrow layout (single column) — flatten the two cols and re-order blocks
+       so Schedule sits directly under Now/Next + Top 3, not buried below the
+       full task bank. `display: contents` promotes block children to direct
+       children of `.today-cmd` so the `order` properties take effect. */
+    @media (max-width: 1099px) {
+      .today-cmd {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+      }
+      .today-col { display: contents; }
+      .today-block-nownext     { order: 1; }
+      .today-block-top3        { order: 2; }
+      .today-block-schedule    { order: 3; }
+      .today-block-unscheduled { order: 4; }
+      .today-block-bank        { order: 5; }
+      .today-block-pulse       { order: 6; }
+      .today-block-justdid     { order: 7; }
+    }
+
+    /* Now/Next — compact at-a-glance panel above Schedule on Today. */
+    .now-next-rows {
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .now-next-row {
+      display: grid;
+      grid-template-columns: 56px 64px 1fr auto;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--card);
+      transition: background 120ms;
+    }
+    .now-next-row.clickable { cursor: pointer; }
+    .now-next-row.clickable:hover { background: var(--card-hover); }
+    .now-next-row.now { border-left: 3px solid var(--accent, #60a5fa); }
+    .now-next-row.next { border-left: 3px solid var(--border-strong); }
+    .now-next-row.empty { color: var(--text-tertiary); }
+    .now-next-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-tertiary);
+    }
+    .now-next-row.now .now-next-label { color: var(--accent, #60a5fa); }
+    .now-next-time {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px; font-weight: 600;
+      color: var(--text-secondary);
+      white-space: nowrap;
+    }
+    .now-next-title {
+      font-size: 13px;
+      color: var(--text-primary);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      min-width: 0;
+    }
+    .now-next-row.empty .now-next-title { color: var(--text-tertiary); font-style: italic; }
+    .now-next-in {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--text-tertiary);
+      white-space: nowrap;
+    }
+    .now-next-row.done .now-next-title { text-decoration: line-through; opacity: 0.55; }
     .plan-section-title {
       display: flex; align-items: center; gap: 10px;
       font-size: 13px; font-weight: 600;
@@ -4624,6 +4695,12 @@
       if (userOnAutoToday) { currentPlanDate = real; return true; }
       return false;
     }
+    // Schedule auto-anchor: jump the page to the current-hour row when first
+    // entering Today, so the user lands on "now" instead of 5 AM. Flag is set
+    // on view-entry (real transition into Today, not a re-render) and cleared
+    // after the scroll runs.
+    let _lastRenderedView = null;
+    let _scheduleAnchorPending = true;
     // Inline search filters — ephemeral, not persisted across sessions
     let bankFilterQuery = '';
     let projectFilterQuery = '';
@@ -4954,6 +5031,9 @@
       // Effects enabled — celebration bursts on project completion. Respects
       // prefers-reduced-motion at runtime regardless of this flag.
       if (s.ui.effects_enabled == null) s.ui.effects_enabled = true;
+      // Auto-anchor: scroll to the current-hour row when first entering Today.
+      // On by default; users can disable in Settings → Display.
+      if (s.ui.schedule_anchor_now == null) s.ui.schedule_anchor_now = true;
       if (!Array.isArray(s.ui.idea_categories) || s.ui.idea_categories.length === 0) {
         s.ui.idea_categories = ['Automation', 'Tech build', 'Home project', 'Book / reading'];
       }
@@ -6778,6 +6858,10 @@
             'Task-completion chimes and tiered flourishes for Top 3 / project completion.',
             () => !!state.ui.sound_enabled,
             (v) => setState(s => { s.ui.sound_enabled = !!v; })));
+          wrap.appendChild(mkToggle('Auto-anchor schedule to now',
+            'When entering Today, scroll the schedule to the current hour. The "↓ Now" button on the Schedule header always works regardless.',
+            () => state.ui.schedule_anchor_now !== false,
+            (v) => setState(s => { s.ui.schedule_anchor_now = !!v; })));
           return wrap;
         })(),
 
@@ -7508,6 +7592,12 @@
       const body = document.getElementById('main-body');
       clearNode(header); clearNode(body);
       const view = state.ui.active_view;
+      // Mark a real entry into Today (not a re-render) so the schedule can
+      // auto-anchor to the current hour exactly once per visit.
+      if (view === 'today' && _lastRenderedView !== 'today') {
+        _scheduleAnchorPending = true;
+      }
+      _lastRenderedView = view;
       if (view === 'today') { renderTodayPlan(header, body); return; }
       if (view === 'daily' || view === 'weekly') { state.ui.active_view = 'today'; render(); return; }
       if (view === 'ideas') { renderIdeasView(header, body); return; }
@@ -7898,11 +7988,16 @@
         row.appendChild(slot);
         schedule.appendChild(row);
       }
-      const scheduleSection = el('div', {}, [
+      const scheduleSection = el('div', { class: 'today-block-schedule' }, [
         el('div', { class: 'plan-section-title' }, [
           el('span', {}, 'Schedule'),
           el('span', { class: 'count' }, scheduled.length + ' scheduled'),
           el('div', { class: 'spacer' }),
+          isToday ? el('button', {
+            class: 'text-btn',
+            title: 'Scroll to the current hour',
+            onClick: () => anchorScheduleToNow(),
+          }, '↓ Now') : null,
           el('button', {
             class: 'text-btn',
             title: 'Clear all scheduled times for this day',
@@ -7911,7 +8006,7 @@
               setState(s => { scheduled.forEach(c => { const cc = s.cards.find(x => x.id === c.id); if (cc) cc.scheduled_time = null; }); });
             },
           }, 'Unschedule all'),
-        ]),
+        ].filter(Boolean)),
         schedule,
       ]);
 
@@ -7927,7 +8022,7 @@
       const pool = el('div', { class: 'unscheduled-pool' });
       due.forEach(c => pool.appendChild(scheduleCardEl(c)));
       const poolEmpty = el('div', { class: 'unscheduled-empty', style: { display: due.length === 0 ? 'block' : 'none' } }, 'Nothing unscheduled. Drag a card here to unschedule it.');
-      const unscheduledSection = el('div', {}, [
+      const unscheduledSection = el('div', { class: 'today-block-unscheduled' }, [
         el('div', { class: 'plan-section-title' }, [
           el('span', {}, 'Unscheduled'),
           el('span', { class: 'count' }, String(due.length)),
@@ -7945,19 +8040,27 @@
         const rightCol = el('div', { class: 'today-col today-col-right' });
 
         top3Block.classList.add('today-sticky-top');
+        top3Block.classList.add('today-block-top3');
+        const bankPanel = renderTodayBankPanel();
+        bankPanel.classList.add('today-block-bank');
+        const justDidBlock = renderJustDidBlock();
+        justDidBlock.classList.add('today-block-justdid');
         leftCol.appendChild(top3Block);
-        leftCol.appendChild(renderTodayBankPanel());
-        leftCol.appendChild(renderJustDidBlock());
+        leftCol.appendChild(bankPanel);
+        leftCol.appendChild(justDidBlock);
 
-        // Right col leads with the at-a-glance Pulse strip (visible above the fold),
-        // then the schedule + unscheduled drawer (which can scroll below if needed).
-        const pulseStrip = el('div', { class: 'today-pulse-strip' });
+        // Right col leads with the day map: Now/Next first (at-a-glance), then
+        // the hourly schedule, then the unscheduled drawer, with Projects/Needs/
+        // Goals pulse below. The scheduler is the day map; pulse is supporting
+        // context that can scroll below.
+        rightCol.appendChild(renderNowNextPanel(scheduled));
+        rightCol.appendChild(scheduleSection);
+        rightCol.appendChild(unscheduledSection);
+        const pulseStrip = el('div', { class: 'today-pulse-strip today-block-pulse' });
         pulseStrip.appendChild(renderProjectsPulsePanel());
         pulseStrip.appendChild(renderNeedsAttentionPanel());
         pulseStrip.appendChild(renderGoalsPulsePanel());
         rightCol.appendChild(pulseStrip);
-        rightCol.appendChild(scheduleSection);
-        rightCol.appendChild(unscheduledSection);
 
         cmd.appendChild(leftCol);
         cmd.appendChild(rightCol);
@@ -7968,6 +8071,22 @@
 
         // (Daily quote now lives in the footer — see renderSnark.)
         body.appendChild(cmd);
+
+        // Auto-anchor the schedule to the current hour exactly once per Today
+        // entry, so the user lands on "now" instead of 5 AM. Honors the
+        // schedule_anchor_now setting (default on). Manual scrolling after
+        // initial render is preserved — the flag is cleared after running.
+        if (_scheduleAnchorPending && state.ui.schedule_anchor_now !== false) {
+          _scheduleAnchorPending = false;
+          // Defer past layout/paint so scrollIntoView has accurate row positions.
+          setTimeout(() => {
+            const nowRow = body.querySelector('.schedule-row.now');
+            if (nowRow) {
+              try { nowRow.scrollIntoView({ block: 'center', behavior: 'auto' }); }
+              catch { nowRow.scrollIntoView(); }
+            }
+          }, 0);
+        }
       } else {
         const wrap = el('div', { class: 'plan-wrap' });
         wrap.appendChild(top3Block);
@@ -8038,6 +8157,100 @@
           });
         });
       }, 0);
+    }
+
+    // ---------- Today: Now / Next compact summary ----------
+    // Two rows: what's happening now (current minute lands inside a card's
+    // [start, start+duration) window) and what's next (earliest start > now).
+    // Click either row to open the underlying card. Header has a "↓ Now"
+    // button that re-anchors the page to the current-hour row even when the
+    // user has the auto-anchor setting off.
+    function renderNowNextPanel(scheduled) {
+      const fmtTime = (h, m) => {
+        const d = new Date(2000, 0, 1, h, m || 0);
+        return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+      };
+      const fmtDelta = (mins) => {
+        if (mins < 60) return 'in ' + mins + 'm';
+        const h = Math.floor(mins / 60);
+        const m = mins % 60;
+        return 'in ' + h + 'h' + (m ? ' ' + m + 'm' : '');
+      };
+      const now = new Date();
+      const nowMin = now.getHours() * 60 + now.getMinutes();
+      let nowCard = null;
+      let nextCard = null;
+      let nextStartMin = Infinity;
+      scheduled.forEach(c => {
+        const start = hourOfScheduled(c) * 60 + minuteOfScheduled(c);
+        const dur = c.duration_minutes || 60;
+        if (start <= nowMin && nowMin < start + dur && !c.done_at) {
+          // Prefer the card that started most recently if multiple overlap
+          if (!nowCard || start > (hourOfScheduled(nowCard) * 60 + minuteOfScheduled(nowCard))) {
+            nowCard = c;
+          }
+        } else if (start > nowMin && start < nextStartMin) {
+          nextCard = c;
+          nextStartMin = start;
+        }
+      });
+
+      const panel = el('div', { class: 'today-panel today-block-nownext' });
+      panel.appendChild(el('div', { class: 'today-panel-head' }, [
+        el('span', {}, 'Now / Next'),
+        el('div', { class: 'spacer' }),
+        el('button', {
+          class: 'text-btn',
+          title: 'Scroll the schedule to the current hour',
+          onClick: () => anchorScheduleToNow(),
+        }, '↓ Now'),
+      ]));
+
+      const rowFor = (kind, card) => {
+        if (!card) {
+          return el('div', { class: 'now-next-row empty ' + kind }, [
+            el('span', { class: 'now-next-label' }, kind === 'now' ? 'Now' : 'Next'),
+            el('span', { class: 'now-next-time' }, ''),
+            el('span', { class: 'now-next-title' }, kind === 'now' ? 'Nothing on the schedule.' : 'End of day.'),
+            el('span', { class: 'now-next-in' }, ''),
+          ]);
+        }
+        const proj = card.project_id && card.project_id !== 'inbox' ? projectById(card.project_id) : null;
+        const ctx = contextOf(card, 'card');
+        const ctxClass = ctx === 'work' ? ' ctx-work' : ctx === 'personal' ? ' ctx-personal' : '';
+        const start = hourOfScheduled(card) * 60 + minuteOfScheduled(card);
+        const timeLabel = fmtTime(hourOfScheduled(card), minuteOfScheduled(card));
+        const trailing = kind === 'now'
+          ? (card.done_at ? '✓ done' : 'in progress')
+          : fmtDelta(start - nowMin);
+        return el('div', {
+          class: 'now-next-row clickable ' + kind + (card.done_at ? ' done' : '') + ctxClass,
+          title: proj ? 'From: ' + proj.name : '',
+          onClick: () => openCardEditModal(card.id),
+        }, [
+          el('span', { class: 'now-next-label' }, kind === 'now' ? 'Now' : 'Next'),
+          el('span', { class: 'now-next-time' }, timeLabel),
+          el('span', { class: 'now-next-title' }, card.title || '(untitled)'),
+          el('span', { class: 'now-next-in' }, trailing),
+        ]);
+      };
+
+      const rows = el('div', { class: 'now-next-rows' });
+      rows.appendChild(rowFor('now', nowCard));
+      rows.appendChild(rowFor('next', nextCard));
+      panel.appendChild(rows);
+      return panel;
+    }
+
+    // Scroll the main-body so the current-hour row is comfortably in view.
+    // Used by both auto-anchor on Today entry and the manual "↓ Now" button.
+    function anchorScheduleToNow() {
+      const body = document.getElementById('main-body');
+      if (!body) return;
+      const nowRow = body.querySelector('.schedule-row.now');
+      if (!nowRow) return;
+      try { nowRow.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+      catch { nowRow.scrollIntoView(); }
     }
 
     // ---------- Today: inline Bank panel (replaces the left-rail bank for Today view) ----------
