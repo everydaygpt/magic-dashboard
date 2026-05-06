@@ -3871,6 +3871,139 @@
       return wrap;
     }
 
+    // ---------- SMS reminders ----------
+    // Outbound webhook (Power Automate / Twilio / etc) delivers a text at the
+    // moment a card's reminder_at lands. Phone + URL are device-local; nothing
+    // is shipped without an explicit user-configured webhook.
+    function renderSmsSettingsEl() {
+      const wrap = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '18px' } });
+      const sms = state.ui.sms;
+
+      const enableCb = el('input', { type: 'checkbox', style: { width: '16px', height: '16px', cursor: 'pointer' } });
+      enableCb.checked = !!sms.enabled;
+      enableCb.addEventListener('change', () => {
+        setState(s => { s.ui.sms.enabled = enableCb.checked; });
+      });
+      wrap.appendChild(el('label', { class: 'card-edit-row', style: { cursor: 'pointer', alignItems: 'flex-start' } }, [
+        enableCb,
+        el('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } }, [
+          el('span', { style: { fontSize: '13px', color: 'var(--text-primary)' } }, 'Send SMS for card reminders'),
+          el('span', { style: { fontSize: '11px', color: 'var(--text-tertiary)' } },
+            'When a card\'s reminder time hits, POST to your webhook. Power Automate / Zapier / Twilio Function — anything that can take a JSON body and send a text.'),
+        ]),
+      ]));
+
+      const phoneInput = el('input', {
+        type: 'tel', placeholder: '+15551234567',
+        value: sms.phone || '',
+        style: { flex: '1', fontFamily: 'JetBrains Mono, monospace', fontSize: '12px' },
+        onInput: (e) => { setState(s => { s.ui.sms.phone = e.target.value.trim(); }); },
+      });
+      const urlInput = el('input', {
+        type: 'url', placeholder: 'https://prod-XX.westus.logic.azure.com/...',
+        value: sms.webhook_url || '',
+        style: { flex: '1', fontFamily: 'JetBrains Mono, monospace', fontSize: '11px' },
+        onInput: (e) => { setState(s => { s.ui.sms.webhook_url = e.target.value.trim(); }); },
+      });
+
+      const labelRow = (label, input) => el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, [
+        el('span', { style: { fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', minWidth: '60px', textTransform: 'uppercase', letterSpacing: '0.05em' } }, label),
+        input,
+      ]);
+      wrap.appendChild(labelRow('Phone', phoneInput));
+      wrap.appendChild(labelRow('Webhook', urlInput));
+
+      const status = el('div', { style: { fontSize: '11px', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-tertiary)' } }, '');
+      const testBtn = el('button', {
+        class: 'text-btn',
+        title: 'Send a test SMS to verify the webhook',
+        onClick: async () => {
+          status.textContent = 'sending…';
+          const ok = await sendSmsViaWebhook({
+            title: 'Magic Dashboard test',
+            message: 'SMS reminders are wired up. ' + new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }),
+            card_id: null,
+          });
+          status.textContent = ok ? '✓ sent' : '✗ webhook returned an error — check the URL';
+          setTimeout(() => { status.textContent = ''; }, 5000);
+        },
+      }, 'Send test');
+      wrap.appendChild(el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, [testBtn, status]));
+
+      wrap.appendChild(el('div', { style: { fontSize: '11px', color: 'var(--text-tertiary)', lineHeight: '1.4' } },
+        'Webhook payload: { phone, message, card_id, title, due, scheduled_time }. The dashboard checks for due reminders every 60s while open.'));
+
+      return wrap;
+    }
+
+    // Posts a payload to the configured SMS webhook. Returns true on 2xx.
+    async function sendSmsViaWebhook(payload) {
+      const sms = state.ui.sms || {};
+      if (!sms.webhook_url) return false;
+      const body = {
+        phone: sms.phone || '',
+        message: payload.message || payload.title || '(no message)',
+        card_id: payload.card_id || null,
+        title: payload.title || '',
+        due: payload.due || null,
+        scheduled_time: payload.scheduled_time || null,
+      };
+      try {
+        const res = await fetch(sms.webhook_url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        return res.ok;
+      } catch (err) {
+        console.warn('SMS webhook failed:', err);
+        return false;
+      }
+    }
+
+    // Ticker — every 60s, scan cards and fire any reminders that just landed.
+    // Marks sms_sent_at so a single reminder isn't fired twice across reloads.
+    let _smsTickerStarted = false;
+    function startSmsTicker() {
+      if (_smsTickerStarted) return;
+      _smsTickerStarted = true;
+      const fire = async () => {
+        const sms = state.ui.sms || {};
+        if (!sms.enabled || !sms.webhook_url) return;
+        const now = new Date();
+        const nowLocal = now.getFullYear() + '-' +
+          String(now.getMonth() + 1).padStart(2, '0') + '-' +
+          String(now.getDate()).padStart(2, '0') + 'T' +
+          String(now.getHours()).padStart(2, '0') + ':' +
+          String(now.getMinutes()).padStart(2, '0');
+        const due = state.cards.filter(c => {
+          if (!c.reminder_at || c.sms_sent_at) return false;
+          if (c.archived || c.done_at) return false;
+          // Compare lexicographically — both are local "YYYY-MM-DDTHH:MM"
+          return c.reminder_at.slice(0, 16) <= nowLocal;
+        });
+        for (const c of due) {
+          const ok = await sendSmsViaWebhook({
+            card_id: c.id,
+            title: c.title,
+            message: 'Reminder: ' + (c.title || 'Untitled') + (c.due ? ' (due ' + c.due + ')' : ''),
+            due: c.due,
+            scheduled_time: c.scheduled_time,
+          });
+          if (ok) {
+            setState(s => {
+              const cc = s.cards.find(x => x.id === c.id);
+              if (cc) cc.sms_sent_at = new Date().toISOString();
+            });
+          }
+        }
+      };
+      setInterval(fire, 60000);
+      // Run once on startup so reminders that fired while the tab was closed
+      // get caught up shortly after the page loads.
+      setTimeout(fire, 5000);
+    }
+
     function renderInboxSettingsEl() {
       const wrap = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '18px' } });
       const es = state.ui.email_source || {};
@@ -4778,6 +4911,8 @@
         recurrence: null,
         duration_minutes: null,
         scheduled_time: null,
+        reminder_at: null,
+        sms_sent_at: null,
         subtasks: [],
         lane: null,
         created_at: now(),
@@ -4971,6 +5106,11 @@
         source: c.source || null,
         duration_minutes: c.duration_minutes == null ? null : c.duration_minutes,
         scheduled_time: c.scheduled_time || null,
+        // SMS reminder: local datetime string ("YYYY-MM-DDTHH:MM") at which the
+        // dashboard ticker POSTs a webhook (Settings → SMS reminders) to deliver
+        // a text. sms_sent_at is set after successful delivery to dedupe.
+        reminder_at: c.reminder_at || null,
+        sms_sent_at: c.sms_sent_at || null,
         subtasks: Array.isArray(c.subtasks) ? c.subtasks : [],
         // Links: per-card list of { label, url } entries (separate from notes freeform text)
         links: Array.isArray(c.links)
@@ -5034,6 +5174,12 @@
       // Auto-anchor: scroll to the current-hour row when first entering Today.
       // On by default; users can disable in Settings → Display.
       if (s.ui.schedule_anchor_now == null) s.ui.schedule_anchor_now = true;
+      // SMS reminders — outbound webhook delivers a text at reminder_at on each
+      // card. Disabled until Chuck wires up a Power Automate flow + phone.
+      s.ui.sms = s.ui.sms && typeof s.ui.sms === 'object' ? s.ui.sms : {};
+      if (typeof s.ui.sms.enabled !== 'boolean') s.ui.sms.enabled = false;
+      if (typeof s.ui.sms.webhook_url !== 'string') s.ui.sms.webhook_url = '';
+      if (typeof s.ui.sms.phone !== 'string') s.ui.sms.phone = '';
       if (!Array.isArray(s.ui.idea_categories) || s.ui.idea_categories.length === 0) {
         s.ui.idea_categories = ['Automation', 'Tech build', 'Home project', 'Book / reading'];
       }
@@ -6877,6 +7023,9 @@
         el('div', { class: 'modal-label' }, 'Inbox (Outlook)'),
         renderInboxSettingsEl(),
 
+        el('div', { class: 'modal-label' }, 'SMS reminders'),
+        renderSmsSettingsEl(),
+
         el('div', { class: 'modal-label' }, 'Email suggestions history'),
         (() => {
           const all = state.email_suggestions || [];
@@ -7564,12 +7713,14 @@
           fileInput.value = '';
           setTimeout(rebuild, 50);
         });
+        const btnRow = el('div', { style: { display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' } });
         const pickBtn = el('button', {
           class: 'text-btn',
-          style: { marginTop: '6px' },
           onClick: () => fileInput.click(),
         }, '+ Attach files');
-        wrap.appendChild(pickBtn);
+        btnRow.appendChild(pickBtn);
+        btnRow.appendChild(pasteImageButton('card', cardId, rebuild));
+        wrap.appendChild(btnRow);
         wrap.appendChild(fileInput);
 
         // Drag-drop zone (re-attach each rebuild)
@@ -8100,7 +8251,14 @@
       setTimeout(() => {
         body.querySelectorAll('.schedule-slot, .unscheduled-pool').forEach(s => {
           Sortable.create(s, {
-            group: { name: 'schedule', pull: true, put: ['schedule', 'cards'] },
+            // pull: 'clone' when dropping into Top 3 so the scheduled card stays
+            // on the schedule (priority + scheduled_time can coexist on one card).
+            // Other destinations (schedule slot, unscheduled pool) move as before.
+            group: {
+              name: 'schedule',
+              pull: (to) => to.options.group.name === 'top3' ? 'clone' : true,
+              put: ['schedule', 'cards'],
+            },
             animation: 160,
             easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
             delay: 120, delayOnTouchOnly: true, touchStartThreshold: 5, fallbackOnBody: true,
@@ -8868,7 +9026,11 @@
     function itemFilesEl(kind, itemId) {
       const files = filesForOwner(kind, itemId);
       const box = el('div', { class: 'item-files' });
-      box.appendChild(el('div', { class: 'item-files-label' }, 'ATTACHMENTS — DROP OR PASTE'));
+      box.appendChild(el('div', { class: 'item-files-label', style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [
+        el('span', {}, 'ATTACHMENTS — DROP OR PASTE'),
+        el('div', { style: { flex: '1' } }),
+        pasteImageButton(kind, itemId, () => render(), { style: { fontSize: '10px' } }),
+      ]));
       if (files.length === 0) {
         box.appendChild(el('div', { class: 'item-files-empty' }, EMPTY_COPY.itemFiles));
       } else {
@@ -10997,6 +11159,59 @@
         }, 'Clear') : null,
       ]);
       node.appendChild(durRow);
+
+      // Reminder: datetime-local for the SMS ticker. Sending requires Settings →
+      // SMS reminders to be enabled with a webhook + phone, but the field stores
+      // regardless so the timestamp survives even if SMS is later turned off.
+      const reminderToLocal = (d) => {
+        const pad = (n) => String(n).padStart(2, '0');
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+      };
+      const reminderInput = el('input', {
+        type: 'datetime-local',
+        value: c.reminder_at || '',
+        onClick: (e) => e.stopPropagation(),
+        onChange: (e) => {
+          const v = e.target.value || '';
+          // Clear sms_sent_at on any change so the reminder fires for the new time
+          updateCard(c.id, { reminder_at: v || null, sms_sent_at: null });
+        },
+        style: { padding: '4px 6px', borderRadius: '6px', background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--text-secondary)', fontSize: '11px' },
+      });
+      const setReminder = (offsetMinutes, anchor) => {
+        const base = anchor || new Date();
+        const t = new Date(base.getTime() + offsetMinutes * 60000);
+        updateCard(c.id, { reminder_at: reminderToLocal(t), sms_sent_at: null });
+      };
+      const remRow = el('div', { class: 'card-edit-row' }, [
+        el('span', { style: cardLabelStyle, title: 'Sends an SMS via the configured webhook when this time hits' }, '🔔 Remind'),
+        reminderInput,
+        dueOpt('+15m', false, () => setReminder(15)),
+        dueOpt('+1h', false, () => setReminder(60)),
+        dueOpt('Tmw 9am', false, () => {
+          const t = new Date();
+          t.setDate(t.getDate() + 1); t.setHours(9, 0, 0, 0);
+          updateCard(c.id, { reminder_at: reminderToLocal(t), sms_sent_at: null });
+        }),
+        c.reminder_at ? el('button', {
+          class: 'due-opt',
+          onClick: (e) => { e.stopPropagation(); updateCard(c.id, { reminder_at: null, sms_sent_at: null }); },
+        }, 'Clear') : null,
+      ]);
+      node.appendChild(remRow);
+      if (c.reminder_at) {
+        const sms = state.ui.sms || {};
+        const status = c.sms_sent_at
+          ? '✓ SMS sent ' + new Date(c.sms_sent_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+          : (sms.enabled && sms.webhook_url && sms.phone)
+            ? 'SMS will fire at the time above'
+            : 'SMS off — turn on in Settings → SMS reminders';
+        node.appendChild(el('div', {
+          style: { fontSize: '10px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', marginTop: '-6px', marginLeft: '74px' },
+          onClick: (e) => e.stopPropagation(),
+        }, status));
+      }
+
       if (c.today_slot) {
         node.appendChild(el('div', { class: 'card-edit-row' }, [
           el('span', { style: { fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.05em' } }, 'In plan'),
@@ -11164,6 +11379,49 @@
         if (typeof onAdd === 'function') setTimeout(onAdd, 120);
       };
       document.addEventListener('paste', handler);
+    }
+
+    // Explicit click-to-paste using the async Clipboard API. Works without
+    // requiring keyboard focus on a paste target — the user clicks the button,
+    // we read the clipboard, and any image gets attached. Falls back to a
+    // friendly hint if the browser doesn't support clipboard.read() (Firefox).
+    async function pasteImageFromClipboard(ownerType, ownerId, onAdd) {
+      if (!navigator.clipboard || !navigator.clipboard.read) {
+        alert('Your browser blocks button-paste. Press Ctrl+V (or ⌘V) here instead.');
+        return;
+      }
+      try {
+        const items = await navigator.clipboard.read();
+        let added = 0;
+        for (const it of items) {
+          const imageType = (it.types || []).find(t => t.startsWith('image/'));
+          if (!imageType) continue;
+          const blob = await it.getType(imageType);
+          const ext = (imageType.split('/')[1] || 'png').replace(/[^a-z0-9]/g, '');
+          const stamp = new Date().toISOString().replace(/[-:T.]/g, '').slice(0, 14);
+          const named = new File([blob], 'pasted-' + stamp + '.' + ext, { type: imageType });
+          addFile(ownerType, ownerId, named);
+          added++;
+        }
+        if (added === 0) {
+          alert('No image on the clipboard. Copy an image first, then click Paste.');
+        } else if (typeof onAdd === 'function') {
+          setTimeout(onAdd, 120);
+        }
+      } catch (err) {
+        // NotAllowedError when the page lost focus or permission is denied.
+        alert('Paste failed: ' + (err && err.message ? err.message : err) + '. Try Ctrl+V here instead.');
+      }
+    }
+
+    function pasteImageButton(ownerType, ownerId, onAdd, opts) {
+      opts = opts || {};
+      return el('button', {
+        class: 'text-btn' + (opts.className ? ' ' + opts.className : ''),
+        title: 'Paste an image from your clipboard',
+        style: opts.style || {},
+        onClick: (e) => { e.stopPropagation(); pasteImageFromClipboard(ownerType, ownerId, onAdd); },
+      }, '📋 Paste');
     }
 
     // ---------- Just Did: log completions inline on Today ----------
@@ -11915,7 +12173,11 @@
         setupFileDrop(filesBox, 'project', proj.id);
         setupFilePaste(filesBox, 'project', proj.id);
         rail.appendChild(el('div', { class: 'rail-panel' }, [
-          el('div', { class: 'rail-panel-head' }, [el('div', { class: 'rail-panel-title' }, 'Files')]),
+          el('div', { class: 'rail-panel-head' }, [
+            el('div', { class: 'rail-panel-title' }, 'Files'),
+            el('div', { style: { flex: '1' } }),
+            pasteImageButton('project', proj.id, () => render()),
+          ]),
           filesBox,
         ]));
 
@@ -13748,6 +14010,9 @@
       if (getSyncPat()) {
         firstLoadSync().catch(e => console.warn(e));
       }
+      // Background ticker for SMS reminders — runs every 60s while the tab is
+      // open. No-op until Settings → SMS reminders is enabled with a webhook.
+      startSmsTicker();
       // iOS Safari freezes setTimeout when you switch tabs or lock the phone,
       // which kills the 2.5s sync debounce mid-flight and loses changes. Flush
       // any pending push immediately on visibility/page-hide so the changes
