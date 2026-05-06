@@ -3871,6 +3871,85 @@
       return wrap;
     }
 
+    // ---------- Browser / PWA notifications ----------
+    // Toggle + a Test button + a permission status line. Enabling for the first
+    // time triggers the browser permission prompt; if denied, the toggle reverts
+    // and we surface the standard "blocked in browser settings" hint.
+    function renderNotificationSettingsEl() {
+      const wrap = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '18px' } });
+
+      const supported = ('Notification' in window);
+      const perm = supported ? Notification.permission : 'unsupported';
+
+      const cb = el('input', { type: 'checkbox', style: { width: '16px', height: '16px', cursor: 'pointer' } });
+      cb.checked = !!state.ui.notifications_enabled && perm === 'granted';
+      cb.disabled = !supported || perm === 'denied';
+      cb.addEventListener('change', async () => {
+        if (!cb.checked) {
+          setState(s => { s.ui.notifications_enabled = false; });
+          return;
+        }
+        const result = await requestNotificationPermission();
+        if (result === 'granted') {
+          setState(s => { s.ui.notifications_enabled = true; });
+        } else {
+          cb.checked = false;
+          alert(result === 'denied'
+            ? 'Notifications are blocked in your browser settings. Unblock them for this site and try again.'
+            : 'Notifications are not supported in this browser.');
+        }
+        // Re-render the modal so the status line reflects the new permission
+        try { closeModal(); openSettingsModal(); } catch {}
+      });
+
+      wrap.appendChild(el('label', { class: 'card-edit-row', style: { cursor: 'pointer', alignItems: 'flex-start' } }, [
+        cb,
+        el('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } }, [
+          el('span', { style: { fontSize: '13px', color: 'var(--text-primary)' } }, 'Browser / PWA notifications'),
+          el('span', { style: { fontSize: '11px', color: 'var(--text-tertiary)' } },
+            'Fire a desktop / mobile notification when a card\'s reminder lands. Works while the tab (or installed PWA) is open. No webhook required.'),
+        ]),
+      ]));
+
+      const statusText = !supported
+        ? 'This browser does not support notifications.'
+        : perm === 'granted'
+          ? '✓ Permission granted'
+          : perm === 'denied'
+            ? '⚠ Blocked — unblock in browser settings (lock icon → Site settings → Notifications)'
+            : 'Permission not yet requested';
+      wrap.appendChild(el('div', {
+        style: { fontSize: '11px', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-tertiary)' },
+      }, statusText));
+
+      const testStatus = el('span', { style: { fontSize: '11px', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-tertiary)' } }, '');
+      const testBtn = el('button', {
+        class: 'text-btn',
+        disabled: !supported,
+        title: 'Fire a sample notification right now',
+        onClick: async () => {
+          const result = await requestNotificationPermission();
+          if (result !== 'granted') {
+            testStatus.textContent = result === 'denied' ? '✗ blocked' : '✗ not granted';
+            return;
+          }
+          const ok = fireBrowserNotification({
+            id: 'test',
+            title: 'Magic Dashboard test',
+            notes: 'Notifications are wired up. ' + new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }),
+          });
+          testStatus.textContent = ok ? '✓ fired' : '✗ failed (check console)';
+          setTimeout(() => { testStatus.textContent = ''; }, 5000);
+        },
+      }, 'Send test');
+      wrap.appendChild(el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, [testBtn, testStatus]));
+
+      wrap.appendChild(el('div', { style: { fontSize: '11px', color: 'var(--text-tertiary)', lineHeight: '1.4' } },
+        'Tip: install the dashboard as a PWA (browser menu → Install / Add to Home Screen) so notifications keep firing without a tab open. iOS Safari requires the app installed to home screen + iOS 16.4+.'));
+
+      return wrap;
+    }
+
     // ---------- SMS reminders ----------
     // Outbound webhook (Power Automate / Twilio / etc) delivers a text at the
     // moment a card's reminder_at lands. Phone + URL are device-local; nothing
@@ -3961,15 +4040,58 @@
       }
     }
 
+    // ---------- Browser / PWA notifications ----------
+    // Foreground notifications via the Web Notifications API. Works while the
+    // browser tab (or installed PWA) is alive — no push backend needed. Permission
+    // is requested on first enable; if the user denies, the toggle reverts.
+    async function requestNotificationPermission() {
+      if (!('Notification' in window)) return 'unsupported';
+      if (Notification.permission === 'granted') return 'granted';
+      if (Notification.permission === 'denied') return 'denied';
+      try { return await Notification.requestPermission(); }
+      catch { return 'denied'; }
+    }
+
+    function fireBrowserNotification(card) {
+      if (!('Notification' in window) || Notification.permission !== 'granted') return false;
+      try {
+        const title = 'Reminder: ' + (card.title || 'Untitled');
+        const lines = [];
+        if (card.due) lines.push('Due ' + card.due);
+        if (card.scheduled_time) {
+          const t = card.scheduled_time.match(/T(\d{2}):(\d{2})/);
+          if (t) lines.push('Scheduled ' + t[1] + ':' + t[2]);
+        }
+        if (card.notes) lines.push(card.notes.slice(0, 140));
+        const n = new Notification(title, {
+          body: lines.join(' · ') || 'On the schedule',
+          tag: 'card-' + card.id,
+          requireInteraction: false,
+        });
+        n.onclick = () => {
+          try { window.focus(); } catch {}
+          try { openCardEditModal(card.id); } catch {}
+          n.close();
+        };
+        return true;
+      } catch (err) {
+        console.warn('Notification failed:', err);
+        return false;
+      }
+    }
+
     // Ticker — every 60s, scan cards and fire any reminders that just landed.
-    // Marks sms_sent_at so a single reminder isn't fired twice across reloads.
-    let _smsTickerStarted = false;
-    function startSmsTicker() {
-      if (_smsTickerStarted) return;
-      _smsTickerStarted = true;
+    // Two independent channels (SMS + browser notification) with separate
+    // dedupe stamps so flipping one doesn't break the other.
+    let _reminderTickerStarted = false;
+    function startReminderTicker() {
+      if (_reminderTickerStarted) return;
+      _reminderTickerStarted = true;
       const fire = async () => {
         const sms = state.ui.sms || {};
-        if (!sms.enabled || !sms.webhook_url) return;
+        const notifyEnabled = state.ui.notifications_enabled === true;
+        const smsActive = sms.enabled && sms.webhook_url;
+        if (!smsActive && !notifyEnabled) return;
         const now = new Date();
         const nowLocal = now.getFullYear() + '-' +
           String(now.getMonth() + 1).padStart(2, '0') + '-' +
@@ -3977,32 +4099,49 @@
           String(now.getHours()).padStart(2, '0') + ':' +
           String(now.getMinutes()).padStart(2, '0');
         const due = state.cards.filter(c => {
-          if (!c.reminder_at || c.sms_sent_at) return false;
+          if (!c.reminder_at) return false;
           if (c.archived || c.done_at) return false;
           // Compare lexicographically — both are local "YYYY-MM-DDTHH:MM"
-          return c.reminder_at.slice(0, 16) <= nowLocal;
+          if (c.reminder_at.slice(0, 16) > nowLocal) return false;
+          // Skip only if BOTH enabled channels have already fired
+          const smsPending = smsActive && !c.sms_sent_at;
+          const notifPending = notifyEnabled && !c.notif_sent_at;
+          return smsPending || notifPending;
         });
         for (const c of due) {
-          const ok = await sendSmsViaWebhook({
-            card_id: c.id,
-            title: c.title,
-            message: 'Reminder: ' + (c.title || 'Untitled') + (c.due ? ' (due ' + c.due + ')' : ''),
-            due: c.due,
-            scheduled_time: c.scheduled_time,
-          });
-          if (ok) {
-            setState(s => {
-              const cc = s.cards.find(x => x.id === c.id);
-              if (cc) cc.sms_sent_at = new Date().toISOString();
+          if (smsActive && !c.sms_sent_at) {
+            const ok = await sendSmsViaWebhook({
+              card_id: c.id,
+              title: c.title,
+              message: 'Reminder: ' + (c.title || 'Untitled') + (c.due ? ' (due ' + c.due + ')' : ''),
+              due: c.due,
+              scheduled_time: c.scheduled_time,
             });
+            if (ok) {
+              setState(s => {
+                const cc = s.cards.find(x => x.id === c.id);
+                if (cc) cc.sms_sent_at = new Date().toISOString();
+              });
+            }
+          }
+          if (notifyEnabled && !c.notif_sent_at) {
+            const ok = fireBrowserNotification(c);
+            if (ok) {
+              setState(s => {
+                const cc = s.cards.find(x => x.id === c.id);
+                if (cc) cc.notif_sent_at = new Date().toISOString();
+              });
+            }
           }
         }
       };
       setInterval(fire, 60000);
-      // Run once on startup so reminders that fired while the tab was closed
-      // get caught up shortly after the page loads.
+      // Run once on startup so reminders that landed while the tab was closed
+      // catch up shortly after the page loads.
       setTimeout(fire, 5000);
     }
+    // Back-compat alias for the boot call site.
+    function startSmsTicker() { startReminderTicker(); }
 
     function renderInboxSettingsEl() {
       const wrap = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '18px' } });
@@ -4913,6 +5052,7 @@
         scheduled_time: null,
         reminder_at: null,
         sms_sent_at: null,
+        notif_sent_at: null,
         subtasks: [],
         lane: null,
         created_at: now(),
@@ -5106,11 +5246,13 @@
         source: c.source || null,
         duration_minutes: c.duration_minutes == null ? null : c.duration_minutes,
         scheduled_time: c.scheduled_time || null,
-        // SMS reminder: local datetime string ("YYYY-MM-DDTHH:MM") at which the
-        // dashboard ticker POSTs a webhook (Settings → SMS reminders) to deliver
-        // a text. sms_sent_at is set after successful delivery to dedupe.
+        // Reminder: local datetime string ("YYYY-MM-DDTHH:MM") at which the
+        // ticker fires any enabled channel — browser notification (Settings →
+        // Notifications) and/or SMS webhook (Settings → SMS reminders).
+        // *_sent_at fields are stamped on successful delivery to dedupe.
         reminder_at: c.reminder_at || null,
         sms_sent_at: c.sms_sent_at || null,
+        notif_sent_at: c.notif_sent_at || null,
         subtasks: Array.isArray(c.subtasks) ? c.subtasks : [],
         // Links: per-card list of { label, url } entries (separate from notes freeform text)
         links: Array.isArray(c.links)
@@ -5180,6 +5322,10 @@
       if (typeof s.ui.sms.enabled !== 'boolean') s.ui.sms.enabled = false;
       if (typeof s.ui.sms.webhook_url !== 'string') s.ui.sms.webhook_url = '';
       if (typeof s.ui.sms.phone !== 'string') s.ui.sms.phone = '';
+      // Browser / PWA notifications — fires a desktop / mobile notification at
+      // reminder_at while the tab (or installed PWA) is open. Off by default;
+      // requires the user to grant the permission prompt on first enable.
+      if (typeof s.ui.notifications_enabled !== 'boolean') s.ui.notifications_enabled = false;
       if (!Array.isArray(s.ui.idea_categories) || s.ui.idea_categories.length === 0) {
         s.ui.idea_categories = ['Automation', 'Tech build', 'Home project', 'Book / reading'];
       }
@@ -7022,6 +7168,9 @@
 
         el('div', { class: 'modal-label' }, 'Inbox (Outlook)'),
         renderInboxSettingsEl(),
+
+        el('div', { class: 'modal-label' }, 'Notifications'),
+        renderNotificationSettingsEl(),
 
         el('div', { class: 'modal-label' }, 'SMS reminders'),
         renderSmsSettingsEl(),
@@ -11201,11 +11350,20 @@
       node.appendChild(remRow);
       if (c.reminder_at) {
         const sms = state.ui.sms || {};
-        const status = c.sms_sent_at
-          ? '✓ SMS sent ' + new Date(c.sms_sent_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-          : (sms.enabled && sms.webhook_url && sms.phone)
-            ? 'SMS will fire at the time above'
-            : 'SMS off — turn on in Settings → SMS reminders';
+        const channels = [];
+        if (state.ui.notifications_enabled && 'Notification' in window && Notification.permission === 'granted') {
+          channels.push(c.notif_sent_at
+            ? '✓ notification sent'
+            : 'notification will fire');
+        }
+        if (sms.enabled && sms.webhook_url && sms.phone) {
+          channels.push(c.sms_sent_at
+            ? '✓ SMS sent ' + new Date(c.sms_sent_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+            : 'SMS will fire');
+        }
+        const status = channels.length
+          ? channels.join(' · ')
+          : 'No delivery channel on — enable in Settings → Notifications or SMS reminders';
         node.appendChild(el('div', {
           style: { fontSize: '10px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', marginTop: '-6px', marginLeft: '74px' },
           onClick: (e) => e.stopPropagation(),
