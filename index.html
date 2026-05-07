@@ -13174,8 +13174,8 @@
         style: { padding: '4px 6px', borderRadius: '6px', background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--text-secondary)', fontSize: '11px' },
       });
       const btnNone = el('button', { class: 'due-opt selected', onClick: () => { due = null; dateInput.value = ''; refreshDue(); } }, 'none');
-      const btnToday = el('button', { class: 'due-opt', onClick: () => { due = 'today'; dateInput.value = ''; refreshDue(); } }, 'today');
-      const btnTomorrow = el('button', { class: 'due-opt', onClick: () => { due = 'tomorrow'; dateInput.value = ''; refreshDue(); } }, 'tomorrow');
+      const btnToday = el('button', { class: 'due-opt', onClick: () => { due = 'today'; dateInput.value = todayISO(); refreshDue(); } }, 'today');
+      const btnTomorrow = el('button', { class: 'due-opt', onClick: () => { due = 'tomorrow'; dateInput.value = tomorrowISO(); refreshDue(); } }, 'tomorrow');
       const refreshDue = () => {
         btnNone.classList.toggle('selected', due == null);
         btnToday.classList.toggle('selected', due === 'today');
