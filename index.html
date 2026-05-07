@@ -2026,6 +2026,9 @@
       font-size: 12px;
       border-radius: 6px;
     }
+    .links-table-wrap { max-width: 1200px; margin: 0 auto; padding-bottom: 24px; overflow-x: auto; }
+    .links-table tbody tr.link-row.ctx-work td:first-child { box-shadow: inset 3px 0 0 var(--work); }
+    .links-table tbody tr.link-row.ctx-personal td:first-child { box-shadow: inset 3px 0 0 var(--personal); }
 
     /* ---------- Books view ---------- */
     .books-list { display: flex; flex-direction: column; gap: 14px; max-width: 880px; margin: 0 auto; padding-bottom: 20px; }
@@ -5447,6 +5450,8 @@
       if (typeof s.ui.layout.task_bank_on_right !== 'boolean') s.ui.layout.task_bank_on_right = false;
       if (s.ui.project_view_mode !== 'kanban' && s.ui.project_view_mode !== 'table') s.ui.project_view_mode = 'kanban';
       if (!s.ui.project_table_sort || typeof s.ui.project_table_sort !== 'object') s.ui.project_table_sort = { key: 'column', dir: 'asc' };
+      if (s.ui.links_view_mode !== 'cards' && s.ui.links_view_mode !== 'table') s.ui.links_view_mode = 'cards';
+      if (!s.ui.links_table_sort || typeof s.ui.links_table_sort !== 'object') s.ui.links_table_sort = { key: 'category', dir: 'asc' };
       // Lane field: 'me' = I'll do it, 'ai' = hand off to AI, null = uncategorized
       s.cards = (s.cards || []).map(c => ({ ...c, lane: c.lane === 'me' || c.lane === 'ai' ? c.lane : null }));
       // Orphan rescue: cards whose project_id points to a deleted project get
@@ -10398,7 +10403,19 @@
       header.appendChild(el('div', { class: 'main-subtitle' },
         links.length + ' link' + (links.length === 1 ? '' : 's') + ' · ' +
         cats.length + ' categor' + (cats.length === 1 ? 'y' : 'ies')));
+      const viewMode = state.ui.links_view_mode || 'cards';
+      const viewToggle = el('div', { class: 'view-toggle', title: 'Switch between card grid and table' }, [
+        el('button', {
+          class: viewMode === 'cards' ? 'active' : '',
+          onClick: () => { if (viewMode !== 'cards') setState(s => { s.ui.links_view_mode = 'cards'; }); },
+        }, [el('span', { class: 'icon' }, '⊞'), el('span', {}, 'Cards')]),
+        el('button', {
+          class: viewMode === 'table' ? 'active' : '',
+          onClick: () => { if (viewMode !== 'table') setState(s => { s.ui.links_view_mode = 'table'; }); },
+        }, [el('span', { class: 'icon' }, '☰'), el('span', {}, 'Table')]),
+      ]);
       header.appendChild(el('div', { class: 'main-actions' }, [
+        viewToggle,
         el('button', { class: 'text-btn primary', onClick: () => openLinkEditModal(null) }, '+ Add link'),
       ]));
 
@@ -10409,7 +10426,12 @@
         return;
       }
 
-      // Group by category, sort categories alphabetically with "" (uncategorized) last
+      if (viewMode === 'table') {
+        body.appendChild(renderLinksTable(links));
+        return;
+      }
+
+      // Card grid: group by category, sort categories alphabetically with "" (uncategorized) last
       const byCat = {};
       links.forEach(l => { (byCat[l.category] = byCat[l.category] || []).push(l); });
       const sortedCats = Object.keys(byCat).sort((a, b) => {
@@ -10440,6 +10462,115 @@
       body.appendChild(wrap);
     }
 
+    function renderLinksTable(links) {
+      const sort = state.ui.links_table_sort || { key: 'category', dir: 'asc' };
+      const getSortValue = (l, key) => {
+        switch (key) {
+          case 'title': return ((l.title || parseDomain(l.url) || l.url || '')).toLowerCase();
+          case 'url': return (l.url || '').toLowerCase();
+          case 'category': return (l.category || '￿').toLowerCase();
+          case 'context': return l.context || 'zzz';
+          case 'updated': return l.updated_at || l.created_at || '';
+          default: return '';
+        }
+      };
+      const sorted = [...links].sort((a, b) => {
+        const av = getSortValue(a, sort.key);
+        const bv = getSortValue(b, sort.key);
+        let cmp = String(av).localeCompare(String(bv));
+        // Tiebreak by category then title so groups stay coherent
+        if (cmp === 0) {
+          cmp = (a.category || '￿').localeCompare(b.category || '￿');
+          if (cmp === 0) cmp = (a.title || '').localeCompare(b.title || '');
+        }
+        return sort.dir === 'desc' ? -cmp : cmp;
+      });
+
+      const headerCell = (label, key) => {
+        const isSorted = sort.key === key;
+        return el('th', {
+          class: 'sortable' + (isSorted ? ' sorted' : ''),
+          onClick: () => setState(s => {
+            const cur = s.ui.links_table_sort || { key: 'category', dir: 'asc' };
+            if (cur.key === key) cur.dir = cur.dir === 'asc' ? 'desc' : 'asc';
+            else { cur.key = key; cur.dir = 'asc'; }
+            s.ui.links_table_sort = cur;
+          }),
+        }, [
+          el('span', {}, label),
+          isSorted ? el('span', { class: 'sort-arrow' }, sort.dir === 'asc' ? '▲' : '▼') : null,
+        ]);
+      };
+
+      const thead = el('thead', {}, [
+        el('tr', {}, [
+          headerCell('Title', 'title'),
+          headerCell('URL', 'url'),
+          headerCell('Category', 'category'),
+          headerCell('Context', 'context'),
+          headerCell('Updated', 'updated'),
+          el('th', {}, ''),
+        ]),
+      ]);
+
+      const tbody = el('tbody');
+      sorted.forEach(l => {
+        const host = parseDomain(l.url);
+        const display = l.title || host || l.url;
+        const ctx = l.context;
+        const ctxLabel = ctx === 'work' ? 'Work' : ctx === 'personal' ? 'Personal' : 'Both';
+        const ctxClass = ctx === 'work' ? ' ctx-work' : ctx === 'personal' ? ' ctx-personal' : '';
+        const tr = el('tr', { class: 'link-row' + ctxClass }, [
+          el('td', {}, [
+            el('img', {
+              src: 'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(host || l.url) + '&sz=32',
+              alt: '', loading: 'lazy',
+              style: { width: '16px', height: '16px', marginRight: '8px', verticalAlign: 'middle', borderRadius: '3px' },
+              onError: (e) => { e.target.style.display = 'none'; },
+            }),
+            el('a', {
+              href: l.url, target: '_blank', rel: 'noopener noreferrer',
+              style: { color: 'var(--text-primary)', textDecoration: 'none', fontWeight: '500' },
+              title: l.url,
+            }, display),
+          ]),
+          el('td', {}, [
+            el('a', {
+              href: l.url, target: '_blank', rel: 'noopener noreferrer',
+              style: { color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', fontSize: '11px', textDecoration: 'none' },
+              title: l.url,
+            }, host || l.url),
+          ]),
+          el('td', {}, l.category || el('span', { style: { color: 'var(--text-tertiary)', fontStyle: 'italic' } }, '—')),
+          el('td', {}, el('span', {
+            class: 'context-pill' + ctxClass,
+            style: { fontSize: '10px', padding: '1px 8px', borderRadius: '10px', background: 'var(--overlay)' },
+          }, ctxLabel)),
+          el('td', {
+            style: { fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace' },
+          }, l.updated_at ? new Date(l.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '—'),
+          el('td', { style: { textAlign: 'right' } }, [
+            el('button', {
+              class: 'icon-btn small',
+              title: 'Edit',
+              onClick: (e) => { e.stopPropagation(); openLinkEditModal(l.id); },
+            }, '✎'),
+            el('button', {
+              class: 'icon-btn small danger',
+              title: 'Delete',
+              onClick: (e) => { e.stopPropagation(); if (confirm('Delete "' + display + '"?')) deleteLink(l.id); },
+              style: { marginLeft: '4px' },
+            }, '×'),
+          ]),
+        ]);
+        tbody.appendChild(tr);
+      });
+
+      return el('div', { class: 'links-table-wrap' }, [
+        el('table', { class: 'project-table links-table' }, [thead, tbody]),
+      ]);
+    }
+
     function openLinkEditModal(id, defaults) {
       defaults = defaults || {};
       const existing = id ? linkById(id) : null;
@@ -10462,11 +10593,11 @@
       // Context picker — work / personal / both, mirrors how cards work
       const ctxRow = el('div', { class: 'card-edit-row' });
       const ctxBtn = (label, val) => el('button', {
-        class: 'due-opt' + (init.context === val ? ' active' : ''),
+        class: 'due-opt' + (init.context === val ? ' selected' : ''),
         onClick: (e) => {
           e.preventDefault();
-          ctxRow.querySelectorAll('button').forEach(b => b.classList.remove('active'));
-          e.currentTarget.classList.add('active');
+          ctxRow.querySelectorAll('.due-opt').forEach(b => b.classList.remove('selected'));
+          e.currentTarget.classList.add('selected');
           init.context = val;
         },
       }, label);
