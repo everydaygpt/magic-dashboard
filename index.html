@@ -1951,6 +1951,82 @@
     }
     .just-did-win-undo:hover { background: var(--overlay); color: var(--text-primary); }
 
+    /* ---------- Link board ---------- */
+    .link-board {
+      display: flex; flex-direction: column; gap: 24px;
+      max-width: 1100px; margin: 0 auto; padding-bottom: 24px;
+    }
+    .link-board-section { display: flex; flex-direction: column; gap: 10px; }
+    .link-board-section-head {
+      display: flex; align-items: center; gap: 10px;
+      padding: 0 2px 6px;
+      border-bottom: 1px solid var(--border);
+    }
+    .link-board-section-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; font-weight: 700;
+      color: var(--text-secondary);
+      text-transform: uppercase; letter-spacing: 0.08em;
+    }
+    .link-board-section-count {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      padding: 1px 6px;
+      background: var(--overlay);
+      color: var(--text-tertiary);
+      border-radius: 4px;
+    }
+    .link-board-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 10px;
+    }
+    .link-tile {
+      display: grid;
+      grid-template-columns: 32px 1fr auto;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--border);
+      border-radius: 10px;
+      text-decoration: none;
+      color: var(--text-primary);
+      transition: background 120ms, border-color 120ms, transform 120ms;
+    }
+    .link-tile:hover { background: var(--card-hover); border-color: var(--border-strong); transform: translateY(-1px); }
+    .link-tile.ctx-work { border-left-color: var(--work); }
+    .link-tile.ctx-personal { border-left-color: var(--personal); }
+    .link-tile-favicon {
+      width: 28px; height: 28px;
+      border-radius: 6px;
+      background: var(--overlay);
+      object-fit: contain;
+    }
+    .link-tile-body { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .link-tile-title {
+      font-size: 13px; font-weight: 600;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .link-tile-host {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--text-tertiary);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .link-tile-actions {
+      display: flex; gap: 4px;
+      opacity: 0; transition: opacity 120ms;
+    }
+    .link-tile:hover .link-tile-actions { opacity: 1; }
+    .link-tile-actions .icon-btn.small {
+      width: 22px; height: 22px;
+      padding: 0;
+      font-size: 12px;
+      border-radius: 6px;
+    }
+
     /* ---------- Books view ---------- */
     .books-list { display: flex; flex-direction: column; gap: 14px; max-width: 880px; margin: 0 auto; padding-bottom: 20px; }
     .book-card {
@@ -5265,6 +5341,18 @@
       s.activity_log = s.activity_log || [];
       s.notes = s.notes || [];
       s.files = s.files || [];
+      // Link board — saved bookmarks grouped by category. Standalone collection
+      // (not tied to projects/cards) so it acts as a personal launcher.
+      s.links = (s.links || []).map(l => ({
+        id: l.id || uid('link'),
+        title: typeof l.title === 'string' ? l.title : '',
+        url: typeof l.url === 'string' ? l.url : '',
+        category: typeof l.category === 'string' ? l.category : '',
+        context: l.context === 'work' || l.context === 'personal' ? l.context : null,
+        position: typeof l.position === 'number' ? l.position : 0,
+        created_at: l.created_at || now(),
+        updated_at: l.updated_at || l.created_at || now(),
+      })).filter(l => l.url);
       // Books + quotes — wisdom you've collected, surfaced as a daily quote
       s.books = (s.books || []).map(b => ({
         id: b.id, title: b.title || '(untitled)', author: b.author || '',
@@ -6704,6 +6792,7 @@
         mkTab('ideas', 'Ideas', '💡', { secondary: true, count: visibleIdeas().length }),
         mkTab('goals', 'Goals', '🎯', { secondary: true, count: visibleGoals().length }),
         mkTab('books', 'Books', '📚', { secondary: true, count: (state.books || []).length }),
+        mkTab('links', 'Links', '🔗', { secondary: true, count: visibleLinks().length }),
         mkTab('activity', 'Activity', '📋', { secondary: true, count: visibleActivity().length }),
         mkTab('done', 'Done', '✓', { secondary: true, count: visibleArchivedCards().length }),
       ]);
@@ -7904,6 +7993,7 @@
       if (view === 'automations') { state.ui.active_view = 'ideas'; render(); return; }
       if (view === 'goals') { renderGoalsView(header, body); return; }
       if (view === 'books') { renderBooksView(header, body); return; }
+      if (view === 'links') { renderLinksView(header, body); return; }
       if (view === 'activity') { renderActivityView(header, body); return; }
       if (view === 'done') { renderDoneView(header, body); return; }
       if (view === 'projects') { renderProjectsHub(header, body); return; }
@@ -10203,6 +10293,233 @@
           }, '+ Add'),
         ]),
       ]);
+    }
+
+    // ---------- Link board ----------
+    // Personal launcher for bookmarks. Free-text categories — the user creates
+    // them on the fly when adding a link. Click a tile to open in a new tab.
+    function visibleLinks() { return (state.links || []).filter(l => contextMatches(l.context)); }
+    function linkById(id) { return (state.links || []).find(l => l.id === id); }
+    function parseDomain(url) {
+      try { return new URL(url).hostname.replace(/^www\./, ''); }
+      catch { return ''; }
+    }
+    function ensureLinkUrl(raw) {
+      const v = (raw || '').trim();
+      if (!v) return '';
+      if (/^https?:\/\//i.test(v)) return v;
+      // Implicitly https — internal portals + intranet still work over https
+      return 'https://' + v;
+    }
+    function addLink({ title, url, category, context }) {
+      const u = ensureLinkUrl(url);
+      if (!u) return null;
+      const cat = (category || '').trim();
+      const id = uid('link');
+      setState(s => {
+        s.links = s.links || [];
+        const maxPos = s.links.filter(l => l.category === cat).reduce((m, l) => Math.max(m, l.position || 0), -1);
+        s.links.push({
+          id,
+          title: (title || '').trim(),
+          url: u,
+          category: cat,
+          context: context === 'work' || context === 'personal' ? context : null,
+          position: maxPos + 1,
+          created_at: now(),
+          updated_at: now(),
+        });
+      });
+      return id;
+    }
+    function updateLink(id, patch) {
+      setState(s => {
+        const l = (s.links || []).find(x => x.id === id);
+        if (!l) return;
+        if (patch.url !== undefined) patch.url = ensureLinkUrl(patch.url);
+        if (patch.title !== undefined) patch.title = String(patch.title || '').trim();
+        if (patch.category !== undefined) patch.category = String(patch.category || '').trim();
+        Object.assign(l, patch, { updated_at: now() });
+      });
+    }
+    function deleteLink(id) {
+      setState(s => { s.links = (s.links || []).filter(l => l.id !== id); });
+    }
+
+    function linkTileEl(l) {
+      const host = parseDomain(l.url);
+      const display = l.title || host || l.url;
+      const ctx = l.context;
+      const ctxClass = ctx === 'work' ? ' ctx-work' : ctx === 'personal' ? ' ctx-personal' : '';
+      const tile = el('a', {
+        class: 'link-tile' + ctxClass,
+        href: l.url,
+        target: '_blank',
+        rel: 'noopener noreferrer',
+        title: l.url,
+      }, [
+        el('img', {
+          class: 'link-tile-favicon',
+          src: 'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(host || l.url) + '&sz=64',
+          alt: '',
+          loading: 'lazy',
+          onError: (e) => { e.target.style.display = 'none'; },
+        }),
+        el('div', { class: 'link-tile-body' }, [
+          el('div', { class: 'link-tile-title' }, display),
+          host ? el('div', { class: 'link-tile-host' }, host) : null,
+        ]),
+        el('div', { class: 'link-tile-actions' }, [
+          el('button', {
+            class: 'icon-btn small',
+            title: 'Edit',
+            onClick: (e) => { e.preventDefault(); e.stopPropagation(); openLinkEditModal(l.id); },
+          }, '✎'),
+          el('button', {
+            class: 'icon-btn small danger',
+            title: 'Delete',
+            onClick: (e) => {
+              e.preventDefault(); e.stopPropagation();
+              if (confirm('Delete "' + display + '"?')) deleteLink(l.id);
+            },
+          }, '×'),
+        ]),
+      ]);
+      return tile;
+    }
+
+    function renderLinksView(header, body) {
+      header.appendChild(el('div', { class: 'main-title' }, [
+        el('span', { style: { fontSize: '22px' } }, '🔗'),
+        el('span', {}, 'Links'),
+      ]));
+      const links = visibleLinks();
+      const cats = [...new Set(links.map(l => l.category))];
+      header.appendChild(el('div', { class: 'main-subtitle' },
+        links.length + ' link' + (links.length === 1 ? '' : 's') + ' · ' +
+        cats.length + ' categor' + (cats.length === 1 ? 'y' : 'ies')));
+      header.appendChild(el('div', { class: 'main-actions' }, [
+        el('button', { class: 'text-btn primary', onClick: () => openLinkEditModal(null) }, '+ Add link'),
+      ]));
+
+      if (links.length === 0) {
+        body.appendChild(el('div', {
+          style: { padding: '60px 20px', textAlign: 'center', color: 'var(--text-tertiary)', fontStyle: 'italic' },
+        }, 'No links yet. Stash the URLs you find yourself typing the same way every week.'));
+        return;
+      }
+
+      // Group by category, sort categories alphabetically with "" (uncategorized) last
+      const byCat = {};
+      links.forEach(l => { (byCat[l.category] = byCat[l.category] || []).push(l); });
+      const sortedCats = Object.keys(byCat).sort((a, b) => {
+        if (a === '' && b !== '') return 1;
+        if (b === '' && a !== '') return -1;
+        return a.toLowerCase().localeCompare(b.toLowerCase());
+      });
+
+      const wrap = el('div', { class: 'link-board' });
+      sortedCats.forEach(cat => {
+        const items = byCat[cat].slice().sort((a, b) => (a.position || 0) - (b.position || 0));
+        const section = el('section', { class: 'link-board-section' });
+        section.appendChild(el('div', { class: 'link-board-section-head' }, [
+          el('span', { class: 'link-board-section-title' }, cat || 'Uncategorized'),
+          el('span', { class: 'link-board-section-count' }, items.length + ''),
+          el('div', { style: { flex: '1' } }),
+          el('button', {
+            class: 'text-btn',
+            title: 'Add a link to this category',
+            onClick: () => openLinkEditModal(null, { category: cat }),
+          }, '+'),
+        ]));
+        const grid = el('div', { class: 'link-board-grid' });
+        items.forEach(l => grid.appendChild(linkTileEl(l)));
+        section.appendChild(grid);
+        wrap.appendChild(section);
+      });
+      body.appendChild(wrap);
+    }
+
+    function openLinkEditModal(id, defaults) {
+      defaults = defaults || {};
+      const existing = id ? linkById(id) : null;
+      const init = existing || { title: '', url: '', category: defaults.category || '', context: state.ui.context_filter !== 'all' ? state.ui.context_filter : null };
+
+      const titleInput = el('input', { type: 'text', value: init.title || '', placeholder: 'Optional — defaults to the page domain', style: { width: '100%' } });
+      const urlInput = el('input', { type: 'url', value: init.url || '', placeholder: 'https://example.com', style: { width: '100%', fontFamily: 'JetBrains Mono, monospace', fontSize: '12px' } });
+
+      // Category: free-text input + datalist of existing categories
+      const existingCats = [...new Set((state.links || []).map(l => l.category).filter(c => c))];
+      const datalistId = 'link-cat-list-' + uid('dl').slice(-6);
+      const catInput = el('input', {
+        type: 'text', value: init.category || '', placeholder: 'e.g. ReThink, HR, Vendors',
+        list: datalistId,
+        style: { width: '100%' },
+      });
+      const datalist = el('datalist', { id: datalistId });
+      existingCats.forEach(c => datalist.appendChild(el('option', { value: c })));
+
+      // Context picker — work / personal / both, mirrors how cards work
+      const ctxRow = el('div', { class: 'card-edit-row' });
+      const ctxBtn = (label, val) => el('button', {
+        class: 'due-opt' + (init.context === val ? ' active' : ''),
+        onClick: (e) => {
+          e.preventDefault();
+          ctxRow.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+          e.currentTarget.classList.add('active');
+          init.context = val;
+        },
+      }, label);
+      ctxRow.appendChild(el('span', { style: { fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.05em', minWidth: '60px' } }, 'Context'));
+      ctxRow.appendChild(ctxBtn('— both', null));
+      ctxRow.appendChild(ctxBtn('Work', 'work'));
+      ctxRow.appendChild(ctxBtn('Personal', 'personal'));
+
+      const errEl = el('div', { style: { fontSize: '11px', color: '#ef4444', minHeight: '14px' } }, '');
+
+      const save = () => {
+        const url = ensureLinkUrl(urlInput.value);
+        if (!url) { errEl.textContent = 'URL is required.'; return; }
+        try { new URL(url); }
+        catch { errEl.textContent = 'That URL doesn\'t look right.'; return; }
+        if (existing) {
+          updateLink(existing.id, {
+            title: titleInput.value,
+            url,
+            category: catInput.value,
+            context: init.context,
+          });
+        } else {
+          addLink({ title: titleInput.value, url, category: catInput.value, context: init.context });
+        }
+        closeModal();
+      };
+
+      urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } });
+      catInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } });
+      titleInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } });
+
+      openModal([
+        el('h3', {}, existing ? 'Edit link' : 'New link'),
+        el('div', { class: 'modal-label' }, 'URL'),
+        urlInput,
+        el('div', { class: 'modal-label' }, 'Title'),
+        titleInput,
+        el('div', { class: 'modal-label' }, 'Category'),
+        catInput,
+        datalist,
+        ctxRow,
+        errEl,
+        el('div', { class: 'modal-actions' }, [
+          existing ? el('button', {
+            class: 'danger',
+            onClick: () => { if (confirm('Delete "' + (existing.title || existing.url) + '"?')) { deleteLink(existing.id); closeModal(); } },
+          }, 'Delete') : null,
+          el('button', { onClick: closeModal }, 'Cancel'),
+          el('button', { class: 'primary', onClick: save }, existing ? 'Save' : 'Add'),
+        ].filter(Boolean)),
+      ]);
+      setTimeout(() => urlInput.focus(), 50);
     }
 
     function renderBooksView(header, body) {
