@@ -11842,6 +11842,82 @@
         }, status));
       }
 
+      // Done at — editable completion timestamp. Lets the user backfill past
+      // completions for timesheets / standups, or fix the time on a card they
+      // marked done after the fact. Setting from empty → marks done with that
+      // time and routes through the same archive/scheduled_time stamping
+      // toggleCardDone uses (so the schedule reflects it on the right day).
+      // Clearing the field undoes the completion.
+      const doneAtToInputVal = (iso) => {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return '';
+        const pad = (n) => String(n).padStart(2, '0');
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+      };
+      // Build the local ("YYYY-MM-DDTHH:MM:SS" without Z) schedule string from a Date,
+      // matching the existing scheduled_time convention so backdated cards land on
+      // the right day's schedule.
+      const localScheduleStr = (d) => {
+        const pad = (n) => String(n).padStart(2, '0');
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':00';
+      };
+      const stampDoneAt = (d) => {
+        if (!d || isNaN(d.getTime())) return;
+        updateCard(c.id, {
+          done_at: d.toISOString(),
+          archived: true,
+          scheduled_time: localScheduleStr(d),
+          _auto_scheduled: true,
+          duration_minutes: c.duration_minutes || 15,
+        });
+      };
+      const doneAtInput = el('input', {
+        type: 'datetime-local',
+        value: doneAtToInputVal(c.done_at),
+        onClick: (e) => e.stopPropagation(),
+        onChange: (e) => {
+          const v = e.target.value || '';
+          if (!v) {
+            // Clearing the field undoes completion (mirrors toggleCardDone undo path)
+            if (c.done_at) toggleCardDone(c.id);
+            return;
+          }
+          const d = new Date(v);
+          if (isNaN(d.getTime())) return;
+          if (!c.done_at) {
+            stampDoneAt(d);
+          } else {
+            // Already done — just patch the timestamp + matching schedule entry
+            const patch = { done_at: d.toISOString() };
+            if (c._auto_scheduled || !c.scheduled_time) {
+              patch.scheduled_time = localScheduleStr(d);
+              patch._auto_scheduled = true;
+            }
+            updateCard(c.id, patch);
+          }
+        },
+        style: { padding: '4px 6px', borderRadius: '6px', background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--text-secondary)', fontSize: '11px' },
+      });
+      const stampNow = (e) => { e.stopPropagation(); stampDoneAt(new Date()); };
+      const stampYesterday5pm = (e) => {
+        e.stopPropagation();
+        const d = new Date(); d.setDate(d.getDate() - 1); d.setHours(17, 0, 0, 0);
+        stampDoneAt(d);
+      };
+      const doneAtRow = el('div', { class: 'card-edit-row' }, [
+        el('span', { style: cardLabelStyle, title: 'When this task was actually finished — edit to backfill a past completion' }, '✓ Done at'),
+        doneAtInput,
+        !c.done_at ? el('button', { class: 'due-opt', onClick: stampNow, title: 'Mark done at the current time' }, 'now') : null,
+        !c.done_at ? el('button', { class: 'due-opt', onClick: stampYesterday5pm, title: 'Backfill: yesterday 5:00 PM' }, 'yest 5pm') : null,
+        c.done_at ? el('button', {
+          class: 'due-opt',
+          onClick: (e) => { e.stopPropagation(); toggleCardDone(c.id); },
+          title: 'Undo — clears the done timestamp',
+        }, 'undo') : null,
+      ].filter(Boolean));
+      node.appendChild(doneAtRow);
+
       if (c.today_slot) {
         node.appendChild(el('div', { class: 'card-edit-row' }, [
           el('span', { style: { fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.05em' } }, 'In plan'),
