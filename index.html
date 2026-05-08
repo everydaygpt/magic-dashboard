@@ -915,6 +915,112 @@
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       max-width: 160px;
     }
+    .projects-hub-subprojects {
+      display: flex; flex-direction: column; gap: 6px;
+      padding-top: 2px;
+    }
+    .projects-hub-subproject {
+      display: grid; grid-template-columns: 1fr auto; gap: 8px;
+      align-items: center;
+      padding: 7px 9px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--overlay);
+      color: var(--text-secondary);
+      font-size: 12px;
+      text-align: left;
+      transition: background 120ms var(--ease), color 120ms var(--ease), border-color 120ms var(--ease);
+    }
+    .projects-hub-subproject:hover {
+      background: var(--overlay-strong);
+      color: var(--text-primary);
+      border-color: var(--border-strong);
+    }
+    .projects-hub-subproject-name {
+      min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      font-weight: 600;
+    }
+    .projects-hub-subproject-meta {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--text-tertiary);
+      white-space: nowrap;
+    }
+
+    .subproject-panel {
+      max-width: 1100px;
+      margin: 0 auto 14px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--surface-sub);
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .subproject-panel-head {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .subproject-panel-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--text-secondary);
+    }
+    .subproject-panel-count {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      padding: 1px 7px;
+      border-radius: 10px;
+      background: var(--overlay);
+      color: var(--text-tertiary);
+    }
+    .subproject-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 8px;
+    }
+    .subproject-card {
+      display: flex; align-items: center; gap: 10px;
+      min-width: 0;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--item-from, var(--accent-from));
+      border-radius: 10px;
+      background: var(--card);
+      color: var(--text-primary);
+      text-align: left;
+      transition: background 120ms var(--ease), border-color 120ms var(--ease), transform 120ms var(--ease);
+    }
+    .subproject-card:hover {
+      background: var(--card-hover);
+      border-color: var(--border-strong);
+      transform: translateY(-1px);
+    }
+    .subproject-card-body {
+      display: flex; flex-direction: column; gap: 3px;
+      min-width: 0;
+      flex: 1;
+    }
+    .subproject-card-title {
+      font-size: 13px; font-weight: 650;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .subproject-card-meta {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--text-tertiary);
+    }
+    .project-parent-select {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--card);
+      color: var(--text-primary);
+      font: inherit;
+      font-size: 13px;
+    }
 
     /* Project links manage-modal */
     .project-links-list {
@@ -1708,6 +1814,21 @@
       padding: 1px 5px; background: rgba(255, 255, 255, 0.04);
       border-radius: 4px; white-space: nowrap;
     }
+    .schedule-card-context {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 1px 5px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      background: var(--overlay);
+      flex-shrink: 0;
+    }
+    .schedule-card-context.work { color: var(--work); border-color: color-mix(in srgb, var(--work) 35%, transparent); }
+    .schedule-card-context.personal { color: var(--personal); border-color: color-mix(in srgb, var(--personal) 35%, transparent); }
     .schedule-card-proj {
       display: inline-flex; align-items: center; gap: 4px;
       flex-shrink: 0;
@@ -1737,6 +1858,7 @@
        already truncates with ellipsis (max-width 110px) so it stays compact
        on narrow side-by-side cards. */
     .schedule-card.timeline .schedule-card-proj { max-width: 96px; }
+    .schedule-card.timeline .schedule-card-context { font-size: 8px; padding: 1px 4px; }
 
     /* ---------- Project status pill (Hub + Project view) ---------- */
     .project-status-pill {
@@ -2418,7 +2540,7 @@
     }
     .now-next-row {
       display: grid;
-      grid-template-columns: 56px 64px 1fr auto;
+      grid-template-columns: 56px 64px auto auto 1fr auto;
       align-items: center;
       gap: 10px;
       padding: 8px 10px;
@@ -2445,6 +2567,29 @@
       font-size: 12px; font-weight: 600;
       color: var(--text-secondary);
       white-space: nowrap;
+    }
+    .now-next-context,
+    .now-next-project {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 2px 6px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      white-space: nowrap;
+      color: var(--text-secondary);
+      background: var(--overlay);
+    }
+    .now-next-context.work { color: var(--work); border-color: color-mix(in srgb, var(--work) 35%, transparent); }
+    .now-next-context.personal { color: var(--personal); border-color: color-mix(in srgb, var(--personal) 35%, transparent); }
+    .now-next-project {
+      color: var(--item-from, var(--accent-from));
+      border-color: color-mix(in srgb, var(--item-from, var(--accent-from)) 35%, transparent);
+      max-width: 72px;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .now-next-title {
       font-size: 13px;
@@ -3539,6 +3684,17 @@
     if (typeof window.msal === 'undefined') {
       window._cdnMissing = (window._cdnMissing || []).concat(['MSAL']);
     }
+    const sortableInstances = new WeakMap();
+    function makeSortable(node, options) {
+      if (!node || !window.Sortable || typeof Sortable.create !== 'function') return null;
+      const previous = sortableInstances.get(node);
+      if (previous && typeof previous.destroy === 'function') {
+        try { previous.destroy(); } catch (_) {}
+      }
+      const instance = Sortable.create(node, options);
+      sortableInstances.set(node, instance);
+      return instance;
+    }
     const PW_HASH = '387c287d2b18fc5dd1beb2b931e2901a34d5dfc6689e4f2eeec3c7a0cf0ea0bd';
     // Baked encrypted PAT for cross-device sync. Encrypted with the password via AES-GCM.
     // Paste the output of Settings → "Bake PAT for other devices" here.
@@ -3918,6 +4074,14 @@
       wrap.appendChild(row('Last updated', state.last_updated || '—'));
       wrap.appendChild(row('Consecutive fails', String(syncConsecutiveFails || 0),
         (syncConsecutiveFails || 0) >= 2 ? warnColor : null));
+      const fileBytes = storedFileDataBytes();
+      wrap.appendChild(row('File bytes', Math.round(fileBytes / 1024) + ' KB / ' + Math.round(FILE_DATA_STORAGE_BUDGET / 1024) + ' KB',
+        fileBytes > FILE_DATA_STORAGE_BUDGET * 0.85 ? warnColor : null));
+      try {
+        const stateBytes = JSON.stringify(state).length;
+        wrap.appendChild(row('State size', Math.round(stateBytes / 1024) + ' KB',
+          stateBytes > 4 * 1024 * 1024 ? warnColor : null));
+      } catch (_) {}
       if (syncLastError) wrap.appendChild(row('Last error', syncLastError, warnColor));
       wrap.appendChild(row('Token type', 'Classic PAT · gist scope'));
 
@@ -4105,6 +4269,7 @@
         phone: sms.phone || '',
         message: payload.message || payload.title || '(no message)',
         card_id: payload.card_id || null,
+        idempotency_key: payload.idempotency_key || null,
         title: payload.title || '',
         due: payload.due || null,
         scheduled_time: payload.scheduled_time || null,
@@ -4120,6 +4285,24 @@
         console.warn('SMS webhook failed:', err);
         return false;
       }
+    }
+    function reminderIdempotencyKey(card, channel) {
+      return ['cmd-reminder', channel, card.id, card.reminder_at || ''].join(':');
+    }
+    function claimReminderSend(card, channel) {
+      const key = reminderIdempotencyKey(card, channel);
+      const lockKey = 'cmd_reminder_lock_' + key;
+      const nowMs = Date.now();
+      try {
+        const existing = Number(localStorage.getItem(lockKey) || '0');
+        if (existing && nowMs - existing < 10 * 60 * 1000) return null;
+        localStorage.setItem(lockKey, String(nowMs));
+      } catch (_) {}
+      return key;
+    }
+    function releaseReminderSend(card, channel) {
+      try { localStorage.removeItem('cmd_reminder_lock_' + reminderIdempotencyKey(card, channel)); }
+      catch (_) {}
     }
 
     // ---------- Browser / PWA notifications ----------
@@ -4192,27 +4375,37 @@
         });
         for (const c of due) {
           if (smsActive && !c.sms_sent_at) {
-            const ok = await sendSmsViaWebhook({
-              card_id: c.id,
-              title: c.title,
-              message: 'Reminder: ' + (c.title || 'Untitled') + (c.due ? ' (due ' + c.due + ')' : ''),
-              due: c.due,
-              scheduled_time: c.scheduled_time,
-            });
-            if (ok) {
-              setState(s => {
-                const cc = s.cards.find(x => x.id === c.id);
-                if (cc) cc.sms_sent_at = new Date().toISOString();
+            const smsKey = claimReminderSend(c, 'sms');
+            if (smsKey) {
+              const ok = await sendSmsViaWebhook({
+                card_id: c.id,
+                idempotency_key: smsKey,
+                title: c.title,
+                message: 'Reminder: ' + (c.title || 'Untitled') + (c.due ? ' (due ' + c.due + ')' : ''),
+                due: c.due,
+                scheduled_time: c.scheduled_time,
               });
+              if (ok) {
+                setState(s => {
+                  const cc = s.cards.find(x => x.id === c.id);
+                  if (cc) cc.sms_sent_at = new Date().toISOString();
+                });
+              } else {
+                releaseReminderSend(c, 'sms');
+              }
             }
           }
           if (notifyEnabled && !c.notif_sent_at) {
+            const notifKey = claimReminderSend(c, 'notification');
+            if (!notifKey) continue;
             const ok = fireBrowserNotification(c);
             if (ok) {
               setState(s => {
                 const cc = s.cards.find(x => x.id === c.id);
                 if (cc) cc.notif_sent_at = new Date().toISOString();
               });
+            } else {
+              releaseReminderSend(c, 'notification');
             }
           }
         }
@@ -4776,7 +4969,7 @@
             });
             return;
           }
-          state = migrateState(remote);
+          state = migrateRemotePreservingLocalUi(remote);
           try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
           render();
         }
@@ -4909,7 +5102,7 @@
             class: 'danger',
             onClick: () => {
               if (!confirm('Replace local with remote (' + remoteCount + ' cards)? You will lose ' + dropped + ' cards from this device.\nA backup is saved at localStorage[' + backupKey + ']')) return;
-              state = migrateState(remote);
+              state = migrateRemotePreservingLocalUi(remote);
               try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
               closeModal();
               render();
@@ -5058,9 +5251,35 @@
     // Inline search filters — ephemeral, not persisted across sessions
     let bankFilterQuery = '';
     let projectFilterQuery = '';
+    let linksFilterQuery = '';
     let currentDailyDate = todayISO();
     let currentWeeklyDate = null; // lazy-init to mondayOf(todayISO) inside render
     let currentIdeaCategory = null; // null = All
+
+    // UI/session preferences should not be imported from another device during
+    // cloud pull. The actual dashboard data syncs; the shell stays local.
+    const LOCAL_UI_KEYS = [
+      'active_view', 'last_project_view', 'context_filter', 'theme', 'theme_mode',
+      'jarvis_mode', 'sound_enabled', 'effects_enabled', 'schedule_anchor_now',
+      'layout', 'banner_dismissed', 'collapsed_sections', 'bank_expanded',
+      'project_view_mode', 'project_table_sort',
+    ];
+    function clonePlain(value) {
+      if (value == null) return value;
+      try { return JSON.parse(JSON.stringify(value)); }
+      catch (_) { return value; }
+    }
+    function migrateRemotePreservingLocalUi(remote) {
+      const localUi = clonePlain(state && state.ui ? state.ui : {});
+      const next = migrateState(remote);
+      next.ui = next.ui || {};
+      LOCAL_UI_KEYS.forEach(k => {
+        if (localUi && Object.prototype.hasOwnProperty.call(localUi, k)) {
+          next.ui[k] = clonePlain(localUi[k]);
+        }
+      });
+      return next;
+    }
 
     // ---------- Defaults / migration ----------
 
@@ -5275,6 +5494,7 @@
         return {
           ...p,
           context: p.context || 'work',
+          parent_id: typeof p.parent_id === 'string' && p.parent_id ? p.parent_id : null,
           people: Array.isArray(p.people) ? p.people : [],
           link: typeof p.link === 'string' ? p.link : '',  // keep for back-compat readers
           links,
@@ -5282,6 +5502,21 @@
           status: ['active', 'on_hold', 'blocked', 'coming_soon', 'done'].includes(p.status) ? p.status : 'active',
           columns,
         };
+      });
+      const validProjectIds = new Set(s.projects.map(p => p.id));
+      s.projects.forEach(p => {
+        if (!p.parent_id || p.parent_id === p.id || !validProjectIds.has(p.parent_id)) {
+          p.parent_id = null;
+          return;
+        }
+        const seen = new Set([p.id]);
+        let cur = p.parent_id;
+        while (cur) {
+          if (seen.has(cur)) { p.parent_id = null; break; }
+          seen.add(cur);
+          const parent = s.projects.find(x => x.id === cur);
+          cur = parent ? parent.parent_id : null;
+        }
       });
       s.ideas = (s.ideas || []).map(i => ({
         ...i,
@@ -5609,6 +5844,46 @@
 
     // ---------- Queries (context-aware) ----------
     function projectById(id) { return state.projects.find(p => p.id === id); }
+    function compactProjectLabel(name) {
+      const clean = String(name || '').trim();
+      if (!clean) return '';
+      const words = clean.split(/\s+/).filter(Boolean);
+      if (words.length === 1) return words[0].slice(0, 12);
+      const initials = words.map(w => w[0]).join('').slice(0, 4).toUpperCase();
+      return initials || clean.slice(0, 12);
+    }
+    function projectChildren(pid) {
+      return state.projects
+        .filter(p => p.parent_id === pid && contextMatches(p.context))
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    }
+    function topLevelProjects(projects) {
+      const ids = new Set(projects.map(p => p.id));
+      return projects.filter(p => !p.parent_id || !ids.has(p.parent_id));
+    }
+    function projectPath(proj) {
+      const path = [];
+      let cur = proj;
+      const seen = new Set();
+      while (cur && !seen.has(cur.id)) {
+        path.unshift(cur);
+        seen.add(cur.id);
+        cur = cur.parent_id ? projectById(cur.parent_id) : null;
+      }
+      return path;
+    }
+    function wouldCreateProjectCycle(projectId, parentId) {
+      if (!parentId) return false;
+      if (projectId === parentId) return true;
+      let cur = projectById(parentId);
+      const seen = new Set([projectId]);
+      while (cur) {
+        if (seen.has(cur.id)) return true;
+        seen.add(cur.id);
+        cur = cur.parent_id ? projectById(cur.parent_id) : null;
+      }
+      return false;
+    }
     function visibleProjects() {
       return state.projects.filter(p => contextMatches(p.context));
     }
@@ -5709,7 +5984,7 @@
     function deleteActivity(id) { setState(s => { s.activity_log = s.activity_log.filter(e => e.id !== id); }); }
 
     // ---------- Mutations ----------
-    function addProject(name, accent, context) {
+    function addProject(name, accent, context, parentId) {
       const id = uid('proj');
       const cols = [
         { id: uid('col'), name: 'Today' },
@@ -5717,9 +5992,11 @@
         { id: uid('col'), name: 'Done' },
       ];
       setState(s => {
-        s.projects.push({ id, name, accent, context, people: [], link: '', links: [], columns: cols, created_at: now() });
+        const parent = parentId ? s.projects.find(p => p.id === parentId) : null;
+        const projectContext = parent ? parent.context : context;
+        s.projects.push({ id, name, accent, context: projectContext, parent_id: parent ? parent.id : null, people: [], link: '', links: [], columns: cols, created_at: now() });
         s.ui.active_view = id;
-        logActivity('project_created', 'Created project "' + name + '"', { project_id: id, context });
+        logActivity('project_created', 'Created project "' + name + '"', { project_id: id, context: projectContext });
       });
       return id;
     }
@@ -5732,7 +6009,28 @@
       setState(s => { const p = s.projects.find(x => x.id === pid); if (p) p.accent = accent; });
     }
     function changeProjectContext(pid, context) {
-      setState(s => { const p = s.projects.find(x => x.id === pid); if (p) p.context = context; });
+      setState(s => {
+        const apply = (id) => {
+          const p = s.projects.find(x => x.id === id);
+          if (!p) return;
+          p.context = context;
+          s.projects.filter(child => child.parent_id === id).forEach(child => apply(child.id));
+        };
+        apply(pid);
+      });
+    }
+    function setProjectParent(pid, parentId) {
+      if (wouldCreateProjectCycle(pid, parentId)) {
+        alert('That would turn the project tree into a pretzel. Pick a different parent.');
+        return;
+      }
+      setState(s => {
+        const p = s.projects.find(x => x.id === pid);
+        if (!p) return;
+        const parent = parentId ? s.projects.find(x => x.id === parentId) : null;
+        p.parent_id = parent ? parent.id : null;
+        if (parent) p.context = parent.context;
+      });
     }
     function addProjectPerson(pid, name) {
       const n = (name || '').trim();
@@ -5871,6 +6169,8 @@
 
     function deleteProject(id, mode) {
       setState(s => {
+        const deleted = s.projects.find(p => p.id === id);
+        const reparentTo = deleted ? deleted.parent_id || null : null;
         if (mode === 'move') {
           s.cards.forEach(c => {
             if (c.project_id === id) {
@@ -5883,6 +6183,7 @@
         }
         s.notes = s.notes.filter(n => n.project_id !== id);
         s.files = s.files.filter(f => !(f.owner_type === 'project' && f.owner_id === id));
+        s.projects.forEach(p => { if (p.parent_id === id) p.parent_id = reparentTo; });
         s.projects = s.projects.filter(p => p.id !== id);
         if (s.ui.active_view === id) s.ui.active_view = s.projects[0] ? s.projects[0].id : 'today';
       });
@@ -6167,33 +6468,50 @@
     // Per-file cap. localStorage maxes around 5–10MB; data-URL encoding adds ~33%.
     // 2MB keeps us well under the cap and friendly with the GitHub Gist sync ceiling.
     const FILE_BYTES_LIMIT = 2 * 1024 * 1024;
+    const FILE_DATA_STORAGE_BUDGET = 3.5 * 1024 * 1024;
+
+    function storedFileDataBytes(files) {
+      return (files || state.files || []).reduce((sum, file) => {
+        return sum + (file && file.data ? String(file.data).length : 0);
+      }, 0);
+    }
+    function estimatedDataUrlBytes(file) {
+      return Math.ceil((file && file.size ? file.size : 0) * 1.37) + 128;
+    }
+    function addMetadataOnlyFile(meta, reason) {
+      meta.storage_note = reason || 'metadata-only';
+      setState(s => { s.files.push(meta); });
+    }
 
     function addFile(ot, oi, f) {
       const meta = { id: uid('file'), owner_type: ot, owner_id: oi, name: f.name, size: f.size, ext: extOf(f.name), added_at: now() };
       // Read file content as a data URL for files within the size cap. Larger files
       // get metadata-only (with a clear message in the preview).
       if (f.size <= FILE_BYTES_LIMIT && typeof FileReader !== 'undefined' && f instanceof Blob) {
+        if (storedFileDataBytes() + estimatedDataUrlBytes(f) > FILE_DATA_STORAGE_BUDGET) {
+          addMetadataOnlyFile(meta, 'storage-budget');
+          alert('Stored "' + f.name + '" as a reference. File storage is near the dashboard limit, because apparently browsers enjoy tiny closets.');
+          return;
+        }
         const reader = new FileReader();
         reader.onload = (ev) => {
           meta.data = ev.target.result;
           meta.mime = f.type || '';
-          try {
-            setState(s => { s.files.push(meta); });
-          } catch (err) {
-            // Storage quota likely exceeded — fall back to metadata-only
-            console.warn('File too big to persist with bytes; saving metadata only', err);
+          if (storedFileDataBytes() + String(meta.data || '').length > FILE_DATA_STORAGE_BUDGET) {
             delete meta.data;
-            setState(s => { s.files.push(meta); });
-            alert('Stored "' + f.name + '" as a reference — your local storage is too full to keep the bytes.');
+            addMetadataOnlyFile(meta, 'storage-budget');
+            alert('Stored "' + f.name + '" as a reference. File storage is near the dashboard limit.');
+            return;
           }
+          setState(s => { s.files.push(meta); });
         };
         reader.onerror = () => {
-          setState(s => { s.files.push(meta); });
+          addMetadataOnlyFile(meta, 'read-error');
         };
         reader.readAsDataURL(f);
       } else {
         // Object literals from sample data (no Blob), or files over the cap → metadata only
-        setState(s => { s.files.push(meta); });
+        addMetadataOnlyFile(meta, f.size > FILE_BYTES_LIMIT ? 'file-too-large' : 'metadata-only');
       }
     }
     function deleteFile(id) { setState(s => { s.files = s.files.filter(f => f.id !== id); }); }
@@ -6567,7 +6885,9 @@
 
     function rollMissedSchedules() {
       // Any non-recurring scheduled task whose scheduled_time is in the past
-      // and isn't completed → either auto-complete (user flag) or unschedule → bank.
+      // and isn't completed should stay visible for review. The old behavior
+      // silently unscheduled these into the bank; now Today shows an explicit
+      // review panel so the user decides what happens to yesterday's mess.
       const today = todayISO();
       let changed = false;
       state.cards.forEach(c => {
@@ -6584,14 +6904,18 @@
             project_id: c.project_id === 'inbox' ? null : c.project_id,
             source_type: 'card', source_id: c.id, context: c.context,
           });
-        } else {
-          logActivity('card_missed', 'Rolled back to bank: "' + c.title + '" (scheduled ' + schedDate + ')', {
-            project_id: c.project_id === 'inbox' ? null : c.project_id,
-            source_type: 'card', source_id: c.id, context: c.context,
-          });
-          c.scheduled_time = null;
+          changed = true;
+          return;
         }
-        changed = true;
+        if (c.last_missed_at !== schedDate) {
+          logActivity('card_missed', 'Needs review: "' + c.title + '" was scheduled ' + schedDate, {
+            project_id: c.project_id === 'inbox' ? null : c.project_id,
+            source_type: 'card', source_id: c.id, context: contextOf(c, 'card'),
+          });
+          c.last_missed_at = schedDate;
+          c.missed_count = (c.missed_count || 0) + 1;
+          changed = true;
+        }
       });
       if (changed) saveState();
     }
@@ -6783,7 +7107,7 @@
         opts = opts || {};
         return el('button', {
           class: 'nav-tab' + (opts.secondary ? ' secondary' : '') + (activeTab === id ? ' active' : ''),
-          onClick: () => { state.ui.active_view = id; saveState(); render(); },
+          onClick: () => navigateTo(id),
         }, [
           icon ? el('span', { class: 'nav-tab-icon' }, icon) : null,
           el('span', {}, label),
@@ -7004,7 +7328,7 @@
 
       const bankList = rail.querySelector('.bank-list');
       if (bankList) {
-        Sortable.create(bankList, {
+        makeSortable(bankList, {
           group: { name: 'cards', pull: true, put: true },
           animation: 180,
           easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
@@ -7017,7 +7341,7 @@
       }
 
       rail.querySelectorAll('.project-drop').forEach(item => {
-        Sortable.create(item, {
+        makeSortable(item, {
           group: { name: 'cards', pull: false, put: true },
           animation: 180,
           sort: false,
@@ -7131,7 +7455,7 @@
               const remoteTs = remote.last_updated || '';
               if (remoteTs > localTs) {
                 if (confirm('Remote gist has newer state. Replace local with remote?')) {
-                  state = migrateState(remote);
+                  state = migrateRemotePreservingLocalUi(remote);
                   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
                   render();
                 }
@@ -7999,7 +8323,8 @@
       }
       _lastRenderedView = view;
       if (view === 'today') { renderTodayPlan(header, body); return; }
-      if (view === 'daily' || view === 'weekly') { state.ui.active_view = 'today'; render(); return; }
+      if (view === 'daily') { renderDailyPlanner(header, body); return; }
+      if (view === 'weekly') { renderWeeklyPlanner(header, body); return; }
       if (view === 'ideas') { renderIdeasView(header, body); return; }
       if (view === 'automations') { state.ui.active_view = 'ideas'; render(); return; }
       if (view === 'goals') { renderGoalsView(header, body); return; }
@@ -8020,9 +8345,9 @@
       ]));
       const allProjs = visibleProjects();
       const statusOf = (p) => p.status || 'active';
-      const activeProjs   = allProjs.filter(p => statusOf(p) !== 'done' && statusOf(p) !== 'coming_soon');
-      const comingProjs   = allProjs.filter(p => statusOf(p) === 'coming_soon');
-      const doneProjs     = allProjs.filter(p => statusOf(p) === 'done');
+      const activeProjs   = topLevelProjects(allProjs.filter(p => statusOf(p) !== 'done' && statusOf(p) !== 'coming_soon'));
+      const comingProjs   = topLevelProjects(allProjs.filter(p => statusOf(p) === 'coming_soon'));
+      const doneProjs     = topLevelProjects(allProjs.filter(p => statusOf(p) === 'done'));
       // Sort active by status order
       activeProjs.sort((a, b) => {
         const ai = PROJECT_STATUS_ORDER.indexOf(statusOf(a));
@@ -8199,7 +8524,7 @@
       const cardCount = state.cards.filter(c => c.project_id === p.id && !c.archived).length;
       const people = Array.isArray(p.people) ? p.people : [];
       const status = p.status || 'active';
-      const open = () => { state.ui.active_view = p.id; saveState(); render(); };
+      const open = () => navigateTo(p.id);
       const node = el('div', {
         class: 'projects-hub-card status-' + (PROJECT_STATUS[status] || PROJECT_STATUS.active).className,
         style: { '--item-from': p.accent.from, '--item-to': p.accent.to },
@@ -8236,10 +8561,38 @@
         }
         node.appendChild(linkRow);
       }
+      const children = projectChildren(p.id);
+      if (children.length) {
+        const childWrap = el('div', { class: 'projects-hub-subprojects' });
+        children.slice(0, 3).forEach(child => {
+          const childOpenCount = state.cards.filter(c => c.project_id === child.id && !c.archived && !c.done_at).length;
+          childWrap.appendChild(el('button', {
+            class: 'projects-hub-subproject',
+            title: 'Open sub-project: ' + child.name,
+            onClick: (e) => { e.stopPropagation(); navigateTo(child.id); },
+          }, [
+            el('span', { class: 'projects-hub-subproject-name' }, child.name),
+            el('span', { class: 'projects-hub-subproject-meta' }, childOpenCount + ' open'),
+          ]));
+        });
+        if (children.length > 3) {
+          childWrap.appendChild(el('button', {
+            class: 'projects-hub-subproject',
+            title: 'Open this project to see every sub-project',
+            onClick: (e) => { e.stopPropagation(); open(); },
+          }, [
+            el('span', { class: 'projects-hub-subproject-name' }, '+' + (children.length - 3) + ' more sub-project' + (children.length - 3 === 1 ? '' : 's')),
+            el('span', { class: 'projects-hub-subproject-meta' }, 'open'),
+          ]));
+        }
+        node.appendChild(childWrap);
+      }
       node.appendChild(el('div', { class: 'projects-hub-card-meta' }, [
         el('span', {}, cardCount + ' card' + (cardCount === 1 ? '' : 's')),
         el('span', {}, '·'),
         el('span', {}, p.columns.length + ' column' + (p.columns.length === 1 ? '' : 's')),
+        children.length ? el('span', {}, '·') : null,
+        children.length ? el('span', {}, children.length + ' sub-project' + (children.length === 1 ? '' : 's')) : null,
       ]));
       if (people.length) {
         const row = el('div', { class: 'projects-hub-card-people' });
@@ -8293,9 +8646,8 @@
         el('button', { class: 'text-btn', onClick: () => { if (confirm('Clear the plan for ' + label + '?')) clearDayPlan(); } }, 'Clear'),
       ].filter(Boolean)));
 
-      // Stale-schedule banner: when viewing Today, surface unfinished items still
-      // sitting on yesterday's (or earlier) schedule — usually the result of a
-      // tab being open across midnight before the rollover fix landed.
+      // Missed schedule review: unfinished items from prior schedules stay where
+      // they were until the user chooses what to do with them.
       if (isToday) {
         const todayStr = todayISO();
         const stale = state.cards.filter(c => {
@@ -8322,14 +8674,30 @@
           }, [
             el('span', { style: { fontSize: '16px' } }, '⚠'),
             el('div', { style: { flex: '1', minWidth: '200px', fontSize: '13px' } }, [
-              el('div', { style: { fontWeight: '600' } }, stale.length + ' unfinished item' + (stale.length === 1 ? '' : 's') + ' on past schedules'),
+              el('div', { style: { fontWeight: '600' } }, 'Review ' + stale.length + ' missed scheduled item' + (stale.length === 1 ? '' : 's')),
               el('div', { style: { fontSize: '11px', color: 'var(--text-secondary)' } },
-                'Most recent: ' + new Date(mostRecent + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) + ' · ' + byDay[mostRecent].length + ' item' + (byDay[mostRecent].length === 1 ? '' : 's')),
+                'Most recent: ' + new Date(mostRecent + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) + ' · still on the old schedule until you choose. Very dramatic.'),
+              el('div', { style: { fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' } },
+                stale.slice(0, 3).map(c => c.title).join(' · ') + (stale.length > 3 ? ' · +' + (stale.length - 3) + ' more' : '')),
             ]),
             el('button', {
               class: 'text-btn',
               onClick: () => { currentPlanDate = mostRecent; render(); },
             }, 'Show ' + new Date(mostRecent + 'T00:00:00').toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' })),
+            el('button', {
+              class: 'text-btn',
+              title: 'Clear old scheduled times and return these items to the bank',
+              onClick: () => {
+                if (!confirm('Unschedule ' + stale.length + ' missed item' + (stale.length === 1 ? '' : 's') + ' and send them back to the bank?')) return;
+                setState(s => {
+                  s.cards.forEach(c => {
+                    if (!c.scheduled_time || c.done_at || c.archived) return;
+                    if (c.scheduled_time.slice(0, 10) >= todayStr) return;
+                    c.scheduled_time = null;
+                  });
+                });
+              },
+            }, 'Unschedule'),
             el('button', {
               class: 'text-btn primary',
               title: 'Move all ' + stale.length + ' unfinished items forward to today, keeping their hour:minute',
@@ -8518,7 +8886,7 @@
       // Scoped to body so both the 2-col and narrow layouts are covered.
       setTimeout(() => {
         body.querySelectorAll('.schedule-slot, .unscheduled-pool').forEach(s => {
-          Sortable.create(s, {
+          makeSortable(s, {
             // pull: 'clone' when dropping into Top 3 so the scheduled card stays
             // on the schedule (priority + scheduled_time can coexist on one card).
             // Other destinations (schedule slot, unscheduled pool) move as before.
@@ -8557,7 +8925,7 @@
           });
         });
         body.querySelectorAll('.top3-slot').forEach((slotEl, i) => {
-          Sortable.create(slotEl, {
+          makeSortable(slotEl, {
             group: { name: 'top3', pull: false, put: ['cards', 'schedule'] },
             animation: 160,
             delay: 120, delayOnTouchOnly: true, touchStartThreshold: 5, fallbackOnBody: true,
@@ -8571,7 +8939,7 @@
         });
         // Inline bank list (on Today only) — drag out to project columns / schedule / top3
         body.querySelectorAll('.today-bank-list').forEach(list => {
-          Sortable.create(list, {
+          makeSortable(list, {
             group: { name: 'cards', pull: true, put: true },
             animation: 180,
             easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
@@ -8637,6 +9005,8 @@
           return el('div', { class: 'now-next-row empty ' + kind }, [
             el('span', { class: 'now-next-label' }, kind === 'now' ? 'Now' : 'Next'),
             el('span', { class: 'now-next-time' }, ''),
+            el('span', { class: 'now-next-context' }, ''),
+            el('span', { class: 'now-next-project' }, ''),
             el('span', { class: 'now-next-title' }, kind === 'now' ? 'Nothing on the schedule.' : 'End of day.'),
             el('span', { class: 'now-next-in' }, ''),
           ]);
@@ -8652,10 +9022,13 @@
         return el('div', {
           class: 'now-next-row clickable ' + kind + (card.done_at ? ' done' : '') + ctxClass,
           title: proj ? 'From: ' + proj.name : '',
+          style: proj ? { '--item-from': proj.accent.from, '--item-to': proj.accent.to } : {},
           onClick: () => openCardEditModal(card.id),
         }, [
           el('span', { class: 'now-next-label' }, kind === 'now' ? 'Now' : 'Next'),
           el('span', { class: 'now-next-time' }, timeLabel),
+          ctx ? el('span', { class: 'now-next-context ' + (ctx === 'personal' ? 'personal' : 'work') }, ctx === 'personal' ? 'Personal' : 'Work') : null,
+          proj ? el('span', { class: 'now-next-project', title: projectPath(proj).map(p => p.name).join(' / ') }, compactProjectLabel(proj.name)) : null,
           el('span', { class: 'now-next-title' }, card.title || '(untitled)'),
           el('span', { class: 'now-next-in' }, trailing),
         ]);
@@ -8837,7 +9210,7 @@
           if (e.target.closest('.schedule-card-proj')) {
             // Click the project tag → jump to that project
             e.stopPropagation();
-            if (proj) { setState(s => { s.ui.active_view = proj.id; }); }
+            if (proj) navigateTo(proj.id);
             return;
           }
           if (e.target.closest('.schedule-card-check')) {
@@ -8849,9 +9222,10 @@
       }, [
         layout ? el('div', { class: 'schedule-card-resize-top', title: 'Drag to change start time' }) : null,
         el('span', { class: 'schedule-card-check' }, c.done_at ? '✓' : ''),
-        proj ? el('span', { class: 'schedule-card-proj', title: 'From: ' + proj.name + ' — click to open' }, [
+        ctx ? el('span', { class: 'schedule-card-context ' + (ctx === 'personal' ? 'personal' : 'work') }, ctx === 'personal' ? 'Personal' : 'Work') : null,
+        proj ? el('span', { class: 'schedule-card-proj', title: 'From: ' + projectPath(proj).map(p => p.name).join(' / ') + ' — click to open' }, [
           el('span', { class: 'schedule-card-proj-dot' }),
-          el('span', { class: 'schedule-card-proj-name' }, proj.name),
+          el('span', { class: 'schedule-card-proj-name' }, layout ? compactProjectLabel(proj.name) : proj.name),
         ]) : null,
         el('span', { class: 'schedule-card-title' }, c.title),
         c.duration_minutes ? el('span', { class: 'schedule-card-dur' }, formatDuration(c.duration_minutes)) : null,
@@ -10329,6 +10703,18 @@
     // them on the fly when adding a link. Click a tile to open in a new tab.
     function visibleLinks() { return (state.links || []).filter(l => contextMatches(l.context)); }
     function linkById(id) { return (state.links || []).find(l => l.id === id); }
+    function linkMatchesQuery(link, query) {
+      const q = String(query || '').trim().toLowerCase();
+      if (!q) return true;
+      const haystack = [
+        link.title || '',
+        link.url || '',
+        parseDomain(link.url || ''),
+        link.category || '',
+        link.context || 'both',
+      ].join(' ').toLowerCase();
+      return haystack.includes(q);
+    }
     function parseDomain(url) {
       try { return new URL(url).hostname.replace(/^www\./, ''); }
       catch { return ''; }
@@ -10422,10 +10808,12 @@
         el('span', { style: { fontSize: '22px' } }, '🔗'),
         el('span', {}, 'Links'),
       ]));
-      const links = visibleLinks();
+      const allLinks = visibleLinks();
+      const q = linksFilterQuery.trim();
+      const links = q ? allLinks.filter(l => linkMatchesQuery(l, q)) : allLinks;
       const cats = [...new Set(links.map(l => l.category))];
       header.appendChild(el('div', { class: 'main-subtitle' },
-        links.length + ' link' + (links.length === 1 ? '' : 's') + ' · ' +
+        links.length + (q ? ' of ' + allLinks.length : '') + ' link' + (links.length === 1 ? '' : 's') + ' · ' +
         cats.length + ' categor' + (cats.length === 1 ? 'y' : 'ies')));
       const viewMode = state.ui.links_view_mode || 'cards';
       const viewToggle = el('div', { class: 'view-toggle', title: 'Switch between card grid and table' }, [
@@ -10443,10 +10831,25 @@
         el('button', { class: 'text-btn primary', onClick: () => openLinkEditModal(null) }, '+ Add link'),
       ]));
 
-      if (links.length === 0) {
+      if (allLinks.length > 0) {
+        body.appendChild(filterInputEl({
+          value: linksFilterQuery,
+          placeholder: 'Search links by title, domain, category, or context...',
+          onInput: (v) => { linksFilterQuery = v; render(); },
+          onClear: () => { linksFilterQuery = ''; render(); },
+        }));
+      }
+
+      if (allLinks.length === 0) {
         body.appendChild(el('div', {
           style: { padding: '60px 20px', textAlign: 'center', color: 'var(--text-tertiary)', fontStyle: 'italic' },
         }, 'No links yet. Stash the URLs you find yourself typing the same way every week.'));
+        return;
+      }
+      if (links.length === 0) {
+        body.appendChild(el('div', {
+          style: { padding: '60px 20px', textAlign: 'center', color: 'var(--text-tertiary)', fontStyle: 'italic' },
+        }, 'No links match "' + linksFilterQuery + '". The pile is innocent this time.'));
         return;
       }
 
@@ -11138,7 +11541,50 @@
     }
 
     // ---------- Project (kanban) view ----------
+    function renderSubProjectsPanel(proj) {
+      const children = projectChildren(proj.id);
+      if (children.length === 0) return null;
+      const panel = el('section', { class: 'subproject-panel' });
+      panel.appendChild(el('div', { class: 'subproject-panel-head' }, [
+        el('span', { class: 'subproject-panel-title' }, 'Sub-projects'),
+        el('span', { class: 'subproject-panel-count' }, String(children.length)),
+        el('div', { style: { flex: '1' } }),
+        el('button', {
+          class: 'text-btn',
+          title: 'Create a project inside ' + proj.name,
+          onClick: () => openNewProjectModal({ parent_id: proj.id, context: proj.context }),
+        }, '+ Sub-project'),
+      ]));
+      const grid = el('div', { class: 'subproject-grid' });
+      children.forEach(child => {
+        const childChildren = projectChildren(child.id).length;
+        const cardCount = projectCardCount(child.id);
+        const status = child.status || 'active';
+        const statusLabel = (PROJECT_STATUS[status] || PROJECT_STATUS.active).label;
+        grid.appendChild(el('button', {
+          class: 'subproject-card',
+          style: { '--item-from': child.accent.from, '--item-to': child.accent.to },
+          title: 'Open ' + child.name,
+          onClick: () => navigateTo(child.id),
+        }, [
+          el('div', { class: 'subproject-card-body' }, [
+            el('div', { class: 'subproject-card-title' }, child.name),
+            el('div', { class: 'subproject-card-meta' }, [
+              el('span', {}, statusLabel),
+              el('span', {}, cardCount + ' card' + (cardCount === 1 ? '' : 's')),
+              childChildren ? el('span', {}, childChildren + ' nested') : null,
+            ]),
+          ]),
+          el('span', { class: 'projects-hub-card-ctx ' + (child.context || 'work') }, child.context || 'work'),
+        ]));
+      });
+      panel.appendChild(grid);
+      return panel;
+    }
+
     function renderProjectView(header, body, proj) {
+      const children = projectChildren(proj.id);
+      const parent = proj.parent_id ? projectById(proj.parent_id) : null;
       header.appendChild(el('div', { class: 'main-title' }, [
         el('div', { class: 'main-title-dot' }),
         el('span', {
@@ -11153,7 +11599,10 @@
         projectStatusPillEl(proj, { large: true }),
         el('span', { class: 'activity-ctx ' + proj.context, title: 'Project context' }, proj.context),
       ]));
-      header.appendChild(el('div', { class: 'main-subtitle' }, projectCardCount(proj.id) + ' cards · ' + proj.columns.length + ' columns'));
+      header.appendChild(el('div', { class: 'main-subtitle' },
+        projectCardCount(proj.id) + ' cards · ' + proj.columns.length + ' columns' +
+        (children.length ? ' · ' + children.length + ' sub-project' + (children.length === 1 ? '' : 's') : '') +
+        (parent ? ' · inside ' + parent.name : '')));
       // Editable description — click to edit, blur saves. Shows placeholder when empty.
       const descEl = el('div', {
         class: 'project-description' + (!proj.description ? ' empty' : ''),
@@ -11213,9 +11662,19 @@
           title: 'Add a new task to this project',
           onClick: () => addProjectTaskAndEdit(proj),
         }, '+ Add task'),
+        el('button', {
+          class: 'text-btn',
+          title: 'Create a project inside ' + proj.name,
+          onClick: () => openNewProjectModal({ parent_id: proj.id, context: proj.context }),
+        }, '+ Sub-project'),
         viewToggle,
         aiExportBtn,
         linkBtn,
+        el('button', {
+          class: 'icon-btn',
+          title: 'Move this project under another project',
+          onClick: () => openProjectParentModal(proj),
+        }, '↳'),
         el('button', {
           class: 'icon-btn',
           title: 'Bulk log completions — paste a list, match or create as done',
@@ -11237,6 +11696,9 @@
       ]));
 
       // Inline project filter — narrows cards across all columns by title/notes
+      const subProjectsPanel = renderSubProjectsPanel(proj);
+      if (subProjectsPanel) body.appendChild(subProjectsPanel);
+
       body.appendChild(filterInputEl({
         value: projectFilterQuery,
         placeholder: 'Search cards in this project…',
@@ -11257,7 +11719,7 @@
       proj.columns.forEach(col => {
         const columnCards = body.querySelector('[data-column-id="' + col.id + '"] .column-cards');
         if (columnCards) {
-          Sortable.create(columnCards, {
+          makeSortable(columnCards, {
             group: { name: 'cards', pull: true, put: true },
             animation: 180,
             easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
@@ -11272,7 +11734,7 @@
           });
         }
       });
-      Sortable.create(board, {
+      makeSortable(board, {
         animation: 180,
         easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
         handle: '.column-header',
@@ -12889,7 +13351,7 @@
 
         const notesList = rail.querySelector('.notes-list');
         if (notesList && notes.length > 0) {
-          Sortable.create(notesList, {
+          makeSortable(notesList, {
             animation: 180,
             easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
             onEnd: () => {
@@ -12910,7 +13372,7 @@
         rail.appendChild(bankSectionEl());
         const bankList = rail.querySelector('.bank-list');
         if (bankList) {
-          Sortable.create(bankList, {
+          makeSortable(bankList, {
             group: { name: 'cards', pull: true, put: true },
             animation: 180,
             easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
@@ -13341,13 +13803,16 @@
     }
     function closeModal() { clearNode(document.getElementById('modals')); }
 
-    function openNewProjectModal() {
-      let name = '';
-      let accent = ACCENT_PALETTE[0];
+    function openNewProjectModal(defaults) {
+      defaults = defaults || {};
+      let name = defaults.name || '';
+      let accent = defaults.accent || ACCENT_PALETTE[0];
       const filter = state.ui.context_filter;
-      let context = filter !== 'all' ? filter : 'work';
+      let parentId = defaults.parent_id && projectById(defaults.parent_id) ? defaults.parent_id : null;
+      let parent = parentId ? projectById(parentId) : null;
+      let context = defaults.context || (parent ? parent.context : (filter !== 'all' ? filter : 'work'));
       const nameInput = el('input', {
-        type: 'text', placeholder: 'Project name',
+        type: 'text', value: name, placeholder: parent ? 'Sub-project name' : 'Project name',
         onInput: (e) => name = e.target.value,
         onKeydown: (e) => { if (e.key === 'Enter') submit(); },
       });
@@ -13362,17 +13827,49 @@
       }));
       const picker = el('div', { class: 'accent-picker' }, swatches);
       const ctxToggle = contextToggleEl(context, (ctx) => {
+        if (parent) return;
         context = ctx;
         const btns = ctxToggle.querySelectorAll('button');
         btns.forEach(b => b.classList.remove('active'));
         ctxToggle.querySelector('.' + ctx).classList.add('active');
       });
-      const submit = () => { if (!name.trim()) { nameInput.focus(); return; } addProject(name.trim(), accent, context); closeModal(); };
+      const refreshContextLock = () => {
+        if (parent) context = parent.context;
+        ctxToggle.querySelectorAll('button').forEach(b => {
+          b.classList.toggle('active', b.classList.contains(context));
+          b.disabled = !!parent;
+          b.title = parent ? 'Sub-projects inherit the parent context' : '';
+        });
+      };
+      refreshContextLock();
+      const parentChoices = state.projects.slice().sort((a, b) =>
+        projectPath(a).map(p => p.name).join(' / ').localeCompare(projectPath(b).map(p => p.name).join(' / ')));
+      const parentSelect = el('select', {
+        class: 'project-parent-select',
+        value: parentId || '',
+        onChange: (e) => {
+          parentId = e.target.value || null;
+          parent = parentId ? projectById(parentId) : null;
+          refreshContextLock();
+        },
+      }, [
+        el('option', { value: '' }, 'Top-level project'),
+        ...parentChoices.map(p => el('option', { value: p.id, selected: p.id === parentId }, projectPath(p).map(x => x.name).join(' / '))),
+      ]);
+      const submit = () => {
+        if (!name.trim()) { nameInput.focus(); return; }
+        addProject(name.trim(), accent, context, parentId);
+        closeModal();
+      };
       openModal([
-        el('h3', {}, 'New project'),
+        el('h3', {}, parent ? 'New sub-project' : 'New project'),
         nameInput,
-        el('div', { class: 'modal-label' }, 'Context'),
+        el('div', { class: 'modal-label' }, 'Parent'),
+        parentSelect,
+        el('div', { class: 'modal-label', style: { marginTop: '10px' } }, 'Context'),
         ctxToggle,
+        parent ? el('p', { style: { fontSize: '12px', color: 'var(--text-tertiary)', lineHeight: '1.45', margin: '6px 0 0' } },
+          'Sub-projects inherit their parent context, because mixing Work and Personal under one roof gets weird fast.') : null,
         el('div', { class: 'modal-label', style: { marginTop: '10px' } }, 'Accent color'),
         picker,
         el('div', { class: 'modal-actions' }, [
@@ -14035,6 +14532,7 @@
         el('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } }, [
           el('button', { onClick: () => { closeModal(); const v = prompt('Rename project:', proj.name); if (v && v.trim()) renameProject(proj.id, v.trim()); } }, 'Rename'),
           el('button', { onClick: () => { closeModal(); openAccentModal(proj); } }, 'Change accent'),
+          el('button', { onClick: () => { closeModal(); openProjectParentModal(proj); } }, 'Move under project'),
           el('button', { onClick: () => { changeProjectContext(proj.id, proj.context === 'work' ? 'personal' : 'work'); closeModal(); } }, 'Switch to ' + (proj.context === 'work' ? 'personal' : 'work')),
           el('button', { class: 'danger', onClick: () => { closeModal(); openDeleteProjectModal(proj); } }, 'Delete'),
         ]),
@@ -14042,10 +14540,45 @@
       ]);
     }
 
+    function openProjectParentModal(proj) {
+      const fresh = projectById(proj.id) || proj;
+      let selectedParentId = fresh.parent_id || '';
+      const choices = state.projects
+        .filter(p => p.id !== fresh.id && !wouldCreateProjectCycle(fresh.id, p.id))
+        .sort((a, b) => projectPath(a).map(x => x.name).join(' / ').localeCompare(projectPath(b).map(x => x.name).join(' / ')));
+      const select = el('select', {
+        class: 'project-parent-select',
+        onChange: (e) => { selectedParentId = e.target.value || ''; },
+      }, [
+        el('option', { value: '', selected: selectedParentId === '' }, 'Top-level project'),
+        ...choices.map(p => el('option', { value: p.id, selected: p.id === selectedParentId }, projectPath(p).map(x => x.name).join(' / '))),
+      ]);
+      openModal([
+        el('h3', {}, 'Project nesting'),
+        el('p', {}, 'Current path: ' + projectPath(fresh).map(p => p.name).join(' / ')),
+        el('div', { class: 'modal-label' }, 'Parent project'),
+        select,
+        el('p', { style: { fontSize: '12px', color: 'var(--text-tertiary)', lineHeight: '1.45' } },
+          'If you move it under a parent, it inherits that parent context so Work and Personal do not start pretending they are the same thing.'),
+        el('div', { class: 'modal-actions' }, [
+          el('button', { onClick: closeModal }, 'Cancel'),
+          el('button', {
+            class: 'primary',
+            onClick: () => {
+              setProjectParent(fresh.id, selectedParentId || null);
+              closeModal();
+            },
+          }, 'Save'),
+        ]),
+      ]);
+    }
+
     function openDeleteProjectModal(proj) {
+      const childCount = projectChildren(proj.id).length;
       openModal([
         el('h3', {}, 'Delete "' + proj.name + '"?'),
-        el('p', {}, projectCardCount(proj.id) + ' cards · ' + notesForProject(proj.id).length + ' notes · ' + filesForOwner('project', proj.id).length + ' files'),
+        el('p', {}, projectCardCount(proj.id) + ' cards · ' + notesForProject(proj.id).length + ' notes · ' + filesForOwner('project', proj.id).length + ' files' +
+          (childCount ? ' · ' + childCount + ' sub-project' + (childCount === 1 ? '' : 's') + ' will move up one level' : '')),
         el('div', { class: 'modal-actions' }, [
           el('button', { onClick: closeModal }, 'Cancel'),
           el('button', { onClick: () => { deleteProject(proj.id, 'move'); closeModal(); } }, 'Move cards to bank'),
@@ -14788,10 +15321,18 @@
     }
 
     // Browser-side smoke check — call window.runSmokeChecks() from DevTools.
-    // Verifies pure-function correctness of the high-risk pieces (migrate
-    // idempotency, URL sanitizer, accept idempotency, save flush) without
-    // mutating user state. Returns a {passed, failed, results} object.
+    // Runs against a cloned temporary state and restores localStorage/timers
+    // afterward so the test harness does not create real cards or sync pushes.
     window.runSmokeChecks = function () {
+      flushPendingSave();
+      const originalState = state;
+      const originalStored = localStorage.getItem(STORAGE_KEY);
+      const originalView = originalState && originalState.ui ? originalState.ui.active_view : null;
+      clearTimeout(saveTimer); saveTimer = null;
+      clearTimeout(syncPushTimer); syncPushTimer = null;
+      state = migrateState(JSON.parse(JSON.stringify(originalState)));
+      if (state.ui) state.ui.sound_enabled = false;
+
       const results = [];
       let passed = 0, failed = 0;
       const t = (label, fn) => {
@@ -14805,71 +15346,80 @@
         }
       };
 
-      // 1. migrateState is idempotent: running it twice should not change shape.
-      // Seed must include version:1 — without it, migrateState short-circuits
-      // to defaultState() (legacy/garbage-input handling).
-      t('migrateState idempotent', () => {
-        const seed = { version: 1, cards: [], projects: [], ideas: [], goals: [], notes: [], files: [], activity_log: [], planner_entries: [], books: [], quotes: [], email_suggestions: [], ui: {} };
-        const a = migrateState(JSON.parse(JSON.stringify(seed)));
-        const b = migrateState(JSON.parse(JSON.stringify(a)));
-        return JSON.stringify(a) === JSON.stringify(b);
-      });
+      try {
+        t('migrateState idempotent', () => {
+          const seed = { version: 1, cards: [], projects: [], ideas: [], goals: [], notes: [], files: [], activity_log: [], planner_entries: [], books: [], quotes: [], email_suggestions: [], ui: {} };
+          const a = migrateState(JSON.parse(JSON.stringify(seed)));
+          const b = migrateState(JSON.parse(JSON.stringify(a)));
+          return JSON.stringify(a) === JSON.stringify(b);
+        });
 
-      // 2. safeEmailUrl correctness
-      t('safeEmailUrl rejects javascript:', () => safeEmailUrl('javascript:alert(1)') === null);
-      t('safeEmailUrl rejects data:',       () => safeEmailUrl('data:text/html,<x>') === null);
-      t('safeEmailUrl rejects garbage',     () => safeEmailUrl('not a url') === null);
-      t('safeEmailUrl rejects unknown host',() => safeEmailUrl('https://evil.example.com/x') === null);
-      t('safeEmailUrl accepts outlook',     () => /^https:\/\/outlook\.office\.com/.test(safeEmailUrl('https://outlook.office.com/mail/inbox/abc') || ''));
-      t('safeEmailUrl accepts gmail',       () => /^https:\/\/mail\.google\.com/.test(safeEmailUrl('https://mail.google.com/mail/u/0/#inbox/abc') || ''));
+        t('safeEmailUrl rejects javascript:', () => safeEmailUrl('javascript:alert(1)') === null);
+        t('safeEmailUrl rejects data:',       () => safeEmailUrl('data:text/html,<x>') === null);
+        t('safeEmailUrl rejects garbage',     () => safeEmailUrl('not a url') === null);
+        t('safeEmailUrl rejects unknown host',() => safeEmailUrl('https://evil.example.com/x') === null);
+        t('safeEmailUrl accepts outlook',     () => /^https:\/\/outlook\.office\.com/.test(safeEmailUrl('https://outlook.office.com/mail/inbox/abc') || ''));
+        t('safeEmailUrl accepts gmail',       () => /^https:\/\/mail\.google\.com/.test(safeEmailUrl('https://mail.google.com/mail/u/0/#inbox/abc') || ''));
 
-      // 3. acceptEmailSuggestion idempotency — accept-twice creates one card
-      t('acceptEmailSuggestion idempotent', () => {
-        const sugId = 'sug_smoke_' + Date.now();
-        const beforeCards = state.cards.length;
-        setState(s => {
-          (s.email_suggestions = s.email_suggestions || []).push({
-            id: sugId, status: 'pending', extracted_action: 'Smoke test action',
-            from_name: 'Tester', subject: 'Test', created_at: new Date().toISOString(),
+        t('acceptEmailSuggestion idempotent', () => {
+          const sugId = 'sug_smoke_' + Date.now();
+          const beforeCards = state.cards.length;
+          setState(s => {
+            (s.email_suggestions = s.email_suggestions || []).push({
+              id: sugId, status: 'pending', extracted_action: 'Smoke test action',
+              from_name: 'Tester', subject: 'Test', created_at: new Date().toISOString(),
+            });
           });
+          const id1 = acceptEmailSuggestion(sugId);
+          const id2 = acceptEmailSuggestion(sugId);
+          const newCards = state.cards.length - beforeCards;
+          return id1 === id2 && newCards === 1;
         });
-        const id1 = acceptEmailSuggestion(sugId);
-        const id2 = acceptEmailSuggestion(sugId);
-        const newCards = state.cards.length - beforeCards;
-        // Cleanup
-        setState(s => {
-          s.cards = s.cards.filter(c => c.id !== id1);
-          s.email_suggestions = (s.email_suggestions || []).filter(x => x.id !== sugId);
+
+        t('missed scheduled tasks stay scheduled for review', () => {
+          const c = card('inbox', null, 0, 'Smoke missed schedule', '', null);
+          c.context = 'work';
+          c.scheduled_time = yesterdayISO() + 'T09:00:00';
+          state.cards.push(c);
+          rollMissedSchedules();
+          const fresh = state.cards.find(x => x.id === c.id);
+          return !!fresh && fresh.scheduled_time === c.scheduled_time && fresh.last_missed_at === yesterdayISO();
         });
-        return id1 === id2 && newCards === 1;
-      });
 
-      // 4. flushPendingSave commits the pending localStorage write synchronously
-      t('flushPendingSave commits before timer fires', () => {
-        const marker = '__smoke_marker__' + Date.now();
-        // Mutate state without going through setState (we just want to test
-        // the saveTimer flush path). Set a value, schedule a save, flush.
-        if (!state.ui) state.ui = {};
-        const prev = state.ui._smoke_marker;
-        state.ui._smoke_marker = marker;
-        saveState();
-        flushPendingSave();
-        const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-        const ok = stored && stored.ui && stored.ui._smoke_marker === marker;
-        // Cleanup — restore prior value and re-save through setState
-        setState(s => { if (prev === undefined) delete s.ui._smoke_marker; else s.ui._smoke_marker = prev; });
-        flushPendingSave();
-        return ok;
-      });
+        t('flushPendingSave commits before timer fires', () => {
+          const marker = '__smoke_marker__' + Date.now();
+          if (!state.ui) state.ui = {};
+          state.ui._smoke_marker = marker;
+          saveState();
+          flushPendingSave();
+          const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+          return stored && stored.ui && stored.ui._smoke_marker === marker;
+        });
 
-      // 5. Sync resilience invariants are not stubbed
-      t('firstLoadSync exists', () => typeof firstLoadSync === 'function');
-      t('flushPendingSave exists', () => typeof flushPendingSave === 'function');
-      t('flushPendingPush exists', () => typeof flushPendingPush === 'function');
-      t('openSyncConflictModal exists', () => typeof openSyncConflictModal === 'function');
+        t('remote pull preserves local active view', () => {
+          state.ui.active_view = 'today';
+          const remote = JSON.parse(JSON.stringify(state));
+          remote.ui.active_view = state.projects[0] ? state.projects[0].id : 'projects';
+          const merged = migrateRemotePreservingLocalUi(remote);
+          return merged.ui.active_view === 'today';
+        });
+
+        t('firstLoadSync exists', () => typeof firstLoadSync === 'function');
+        t('flushPendingSave exists', () => typeof flushPendingSave === 'function');
+        t('flushPendingPush exists', () => typeof flushPendingPush === 'function');
+        t('openSyncConflictModal exists', () => typeof openSyncConflictModal === 'function');
+      } finally {
+        clearTimeout(saveTimer); saveTimer = null;
+        clearTimeout(syncPushTimer); syncPushTimer = null;
+        state = originalState;
+        if (originalStored == null) localStorage.removeItem(STORAGE_KEY);
+        else localStorage.setItem(STORAGE_KEY, originalStored);
+        if (originalView && state.ui) state.ui.active_view = originalView;
+        try { render(); } catch (_) {}
+      }
 
       console.log('Smoke checks:', passed + ' passed,', failed + ' failed');
-      results.forEach(r => console.log((r.ok ? '  ✓ ' : '  ✗ ') + r.label + (r.reason ? ' — ' + r.reason : '')));
+      results.forEach(r => console.log((r.ok ? '  OK ' : '  FAIL ') + r.label + (r.reason ? ' - ' + r.reason : '')));
       return { passed, failed, results };
     };
 
