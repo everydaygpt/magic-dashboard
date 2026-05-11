@@ -15210,7 +15210,9 @@
       const synth = (typeof window !== 'undefined') && window.speechSynthesis;
       if (synth) {
         synth.cancel();
-        const utter = new SpeechSynthesisUtterance('Ga Da' + '!'.repeat(1 + excitement));
+        // Phonetic spelling — "Gah Dah" forces /gɑ/ /dɑ/ ("father" a) in
+        // every English voice. "Ga Da" gets read as letters or /geɪ deɪ/.
+        const utter = new SpeechSynthesisUtterance('Gah Dah' + '!'.repeat(1 + excitement));
         utter.pitch  = 1.4 + excitement * 0.25;  // 1.4, 1.65, 1.9
         utter.rate   = 0.85 + excitement * 0.1;  // 0.85, 0.95, 1.05
         utter.volume = 1.0;
