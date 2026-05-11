@@ -15124,32 +15124,158 @@
       { freq: 659.25, dur: 0.10, type: 'triangle' },
       { freq: 783.99, dur: 0.16, type: 'triangle', gain: 0.16 },
     ]); }
-    // Success ding — octave up
-    function soundDone() { playSeq([
-      { freq: 659.25, dur: 0.08, type: 'sine' },
-      { freq: 987.77, dur: 0.22, type: 'sine', gain: 0.18 },
-    ]); }
     // Soft blip for add
     function soundAdd() { playTone(880, 0.06, 'sine', 0.08); }
-    // Top 3 completion — slightly bigger flourish than soundDone. Three notes
-    // climbing into a held high. Played when a card with today_slot==='priority'
-    // gets completed. Falls back to soundDone if user disabled sound.
-    function soundTop3Done() { playSeq([
-      { freq: 587.33, dur: 0.08, type: 'triangle', gain: 0.14 },
-      { freq: 783.99, dur: 0.08, type: 'triangle', gain: 0.14 },
-      { freq: 1046.50, dur: 0.10, type: 'triangle', gain: 0.16 },
-      { freq: 1318.51, dur: 0.28, type: 'sine',     gain: 0.20 },
-    ]); }
-    // Project completion — five-note ascending major scale into a sustained
-    // chord-ish double-stop. The big, satisfying one. Used by markProjectDone.
-    function soundProjectDone() { playSeq([
-      { freq: 523.25, dur: 0.09, type: 'triangle', gain: 0.16 },
-      { freq: 659.25, dur: 0.09, type: 'triangle', gain: 0.16 },
-      { freq: 783.99, dur: 0.09, type: 'triangle', gain: 0.16 },
-      { freq: 987.77, dur: 0.10, type: 'triangle', gain: 0.18 },
-      { freq: 1318.51,dur: 0.40, type: 'sine',     gain: 0.22 },
-      { freq: 1046.50,dur: 0.40, type: 'sine',     gain: 0.16, step: 0 },
-    ]); }
+
+    // === Robot vocalizations (Wall-E style "GA-DA!") + droid chirps ===
+    // Completion sounds are tiered by excitement:
+    //   excitement 0 = regular task done
+    //   excitement 1 = Top-3 priority done
+    //   excitement 2 = whole project done
+    // Each tier raises pitch glide, amplitude, tremolo depth, and the
+    // number of R2D2/BB8 chirps that follow the "GA-DA".
+
+    // One robot syllable: brief consonant noise burst + square-wave vowel body
+    // shaped by a peaking filter (vowel color, boosts instead of attenuating)
+    // and a low-pass; tremolo-style AM gives the buzzy "robot vocal cord"
+    // timbre without killing signal level the way pure ring-mod does.
+    function robotSyllable(ctx, startTime, consonant, pitch, dur, excitement) {
+      // Consonant noise burst — band-pass for 'g', high-pass for 'd'
+      const noiseLen = 0.025;
+      const buf = ctx.createBuffer(1, Math.max(1, Math.floor(ctx.sampleRate * noiseLen)), ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+      const noise = ctx.createBufferSource(); noise.buffer = buf;
+      const nFilt = ctx.createBiquadFilter();
+      if (consonant === 'd') { nFilt.type = 'highpass'; nFilt.frequency.value = 2200; }
+      else                   { nFilt.type = 'bandpass'; nFilt.frequency.value = 1400; nFilt.Q.value = 2; }
+      const nGain = ctx.createGain();
+      nGain.gain.setValueAtTime(0.001, startTime);
+      nGain.gain.exponentialRampToValueAtTime(0.22, startTime + 0.005);
+      nGain.gain.exponentialRampToValueAtTime(0.001, startTime + noiseLen);
+      noise.connect(nFilt); nFilt.connect(nGain); nGain.connect(ctx.destination);
+      noise.start(startTime);
+
+      // Vowel body
+      const vStart = startTime + 0.015;
+      const vEnd   = startTime + dur;
+
+      const carrier = ctx.createOscillator();
+      carrier.type = 'square';
+      carrier.frequency.setValueAtTime(pitch, vStart);
+      const glideEnd = pitch * (1 + 0.04 + excitement * 0.06);
+      carrier.frequency.exponentialRampToValueAtTime(glideEnd, vEnd);
+
+      // Peaking filter at the vowel formant — boosts the "ah" band rather
+      // than attenuating everything else, so the carrier level is preserved.
+      const formant = ctx.createBiquadFilter();
+      formant.type = 'peaking';
+      formant.frequency.value = 950;
+      formant.Q.value = 3;
+      formant.gain.value = 10;
+
+      // Low-pass tames the square wave's high harmonics
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 2800;
+
+      // Tremolo AM at audio-rate-ish (20-44Hz) — adds robot buzz, signal
+      // never drops to zero so it stays loud. Depth scales with excitement.
+      const tremOsc = ctx.createOscillator(); tremOsc.type = 'sine';
+      tremOsc.frequency.value = 20 + excitement * 12;
+      const tremDepth = ctx.createGain();
+      tremDepth.gain.value = 0.08 + excitement * 0.02;
+      tremOsc.connect(tremDepth);
+
+      const env = ctx.createGain();
+      const peak = 0.18 + excitement * 0.05;
+      env.gain.setValueAtTime(0.001, vStart);
+      env.gain.exponentialRampToValueAtTime(peak, vStart + 0.04);
+      env.gain.setValueAtTime(peak, Math.max(vStart + 0.05, vEnd - 0.05));
+      env.gain.exponentialRampToValueAtTime(0.001, vEnd);
+      tremDepth.connect(env.gain);
+
+      carrier.connect(formant); formant.connect(lp); lp.connect(env); env.connect(ctx.destination);
+
+      carrier.start(vStart); carrier.stop(vEnd + 0.02);
+      tremOsc.start(vStart); tremOsc.stop(vEnd + 0.02);
+    }
+
+    // "GA-DA" — two syllables, second one a tick higher for emphasis
+    function robotGaDa(excitement) {
+      const ctx = ensureAudio(); if (!ctx) return;
+      const t0 = ctx.currentTime;
+      const pitch = 135 + excitement * 18;
+      const dur = 0.22 + excitement * 0.04;
+      robotSyllable(ctx, t0,                       'g', pitch,        dur,        excitement);
+      robotSyllable(ctx, t0 + dur + 0.05,          'd', pitch * 1.18, dur + 0.05, excitement);
+    }
+
+    // R2D2-style whistle: rapid pitch sweeps on a square wave
+    function r2Chirp(ctx, startTime, sweeps) {
+      const osc = ctx.createOscillator(); osc.type = 'square';
+      const g = ctx.createGain(); g.gain.value = 0.001;
+      osc.connect(g); g.connect(ctx.destination);
+      let t = startTime;
+      for (let i = 0; i < sweeps; i++) {
+        const startFreq = 700 + Math.random() * 1800;
+        const endFreq   = 700 + Math.random() * 2400;
+        const dur = 0.05 + Math.random() * 0.08;
+        osc.frequency.setValueAtTime(startFreq, t);
+        osc.frequency.exponentialRampToValueAtTime(endFreq, t + dur);
+        g.gain.setValueAtTime(0.001, t);
+        g.gain.exponentialRampToValueAtTime(0.06, t + 0.008);
+        g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+        t += dur + 0.025;
+      }
+      osc.start(startTime); osc.stop(t + 0.05);
+      return t;
+    }
+
+    // BB-8 style burble: warbling sine that wanders around a center pitch
+    function bb8Burble(ctx, startTime) {
+      const osc = ctx.createOscillator(); osc.type = 'sine';
+      const base = 500 + Math.random() * 400;
+      osc.frequency.setValueAtTime(base, startTime);
+      const steps = 8;
+      for (let i = 1; i <= steps; i++) {
+        const f = base * (1 + 0.5 * Math.sin(i * 1.8));
+        osc.frequency.exponentialRampToValueAtTime(Math.max(140, f), startTime + i * 0.022);
+      }
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.001, startTime);
+      g.gain.exponentialRampToValueAtTime(0.07, startTime + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, startTime + steps * 0.022);
+      osc.connect(g); g.connect(ctx.destination);
+      osc.start(startTime); osc.stop(startTime + steps * 0.022 + 0.05);
+      return startTime + steps * 0.022;
+    }
+
+    // Tier 1 — regular task: quick GA-DA + one chirp
+    function soundDone() {
+      if (!state.ui.sound_enabled) return;
+      const ctx = ensureAudio(); if (!ctx) return;
+      robotGaDa(0);
+      r2Chirp(ctx, ctx.currentTime + 0.55, 1);
+    }
+    // Tier 2 — Top-3 priority: louder GA-DA + 2 R2 chirps + BB8 burble
+    function soundTop3Done() {
+      if (!state.ui.sound_enabled) return;
+      const ctx = ensureAudio(); if (!ctx) return;
+      robotGaDa(1);
+      r2Chirp(ctx,   ctx.currentTime + 0.62, 2);
+      bb8Burble(ctx, ctx.currentTime + 0.92);
+    }
+    // Tier 3 — project completion: ecstatic GA-DA + cascading droid chatter
+    function soundProjectDone() {
+      if (!state.ui.sound_enabled) return;
+      const ctx = ensureAudio(); if (!ctx) return;
+      robotGaDa(2);
+      r2Chirp(ctx,   ctx.currentTime + 0.68, 3);
+      bb8Burble(ctx, ctx.currentTime + 1.05);
+      r2Chirp(ctx,   ctx.currentTime + 1.30, 2);
+      bb8Burble(ctx, ctx.currentTime + 1.60);
+    }
     // Fanfare for streak milestones (5, 10, 25, 50, 100)
     function soundStreak() { playSeq([
       { freq: 523.25, dur: 0.1, type: 'square', gain: 0.1 },
