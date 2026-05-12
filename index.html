@@ -13561,6 +13561,13 @@
         if (c.project_id !== 'inbox' || c.archived || c.done_at) return false;
         if (!contextMatches(c.context)) return false;
         if (!c.created_at) return false;
+        // Cards with an existing commitment aren't "rotting" — they have their
+        // own surfacing path (overdue panel, schedule, recurrence rhythm).
+        // Recurring cards in particular keep advancing on completion so their
+        // created_at age is meaningless. Skip all three.
+        if (c.recurrence) return false;
+        if (c.due) return false;
+        if (c.scheduled_time) return false;
         const ageDays = (Date.now() - new Date(c.created_at).getTime()) / 86400000;
         return ageDays >= 14;
       }).map(c => ({
