@@ -14757,7 +14757,12 @@
             el('span', {}, label),
           ]));
           byGroup[key].forEach(c => {
-            const already = !!c.today_slot;
+            // Only count as "already in plan" if the card is in TODAY's plan.
+            // A stale today_slot from a prior day's plan (plan_date != today)
+            // would otherwise disable the row in the picker and block the user
+            // from re-adding the card — the bug that kept scheduled cards from
+            // landing in today's Top 3 because they'd been Top-3'd on a past day.
+            const already = !!c.today_slot && c.plan_date === currentPlanDate;
             const isScheduled = !!c.scheduled_time;
             // Build hint chips so the user sees WHY a card might look unfamiliar
             const hints = [];
