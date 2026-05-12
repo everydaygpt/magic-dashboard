@@ -8174,6 +8174,8 @@
         ...taskFields,
         el('div', { class: 'modal-label', style: { marginTop: '10px' } }, isInfo ? 'Checklist' : 'Subtasks'),
         subtaskSectionEl(cardId),
+        el('div', { class: 'modal-label', style: { marginTop: '10px' } }, 'Links'),
+        cardLinksSectionEl(cardId),
         el('div', { class: 'modal-label', style: { marginTop: '10px' } }, 'Attachments'),
         cardFilesSectionEl(cardId),
         el('div', { class: 'modal-actions' }, [
