@@ -1355,12 +1355,17 @@
     html[data-theme="personal"] .bank-card-meta .attach-pill { background: rgba(37, 99, 235, 0.12); color: #1d4ed8; }
     html[data-theme="personal"] .bank-card-meta .rec-pill { background: rgba(124, 58, 237, 0.12); color: #6d28d9; }
 
-    /* Multi-select for bulk actions (e.g. merge) */
-    .bank-card.selected {
-      background: var(--card-hover);
-      border-color: var(--accent-from);
+    /* Multi-select for bulk actions (e.g. merge) — applied to every
+       card-like renderer so users can mix bank, plan, schedule, and
+       project-board items in one selection. */
+    .bank-card.selected,
+    .plan-card.selected,
+    .schedule-card.selected,
+    .card.selected {
+      border-color: var(--accent-from) !important;
       box-shadow: 0 0 0 1px var(--accent-from) inset, 0 4px 12px rgba(0, 0, 0, 0.25);
     }
+    .bank-card.selected { background: var(--card-hover); }
     .bank-card.selected:hover { transform: translateX(2px); }
     #bulk-action-bar {
       position: fixed;
@@ -7861,17 +7866,7 @@
         dataset: { cardId: c.id },
         title: 'Click to open · ⌘/Ctrl+click to select for bulk actions',
         onClick: (e) => {
-          // Modifier-click toggles selection. Plain click toggles when a
-          // selection is already active, otherwise opens the edit modal.
-          if (e.metaKey || e.ctrlKey || e.shiftKey) {
-            e.preventDefault();
-            toggleCardSelection(c.id);
-            return;
-          }
-          if (selectedCardIds.size > 0) {
-            toggleCardSelection(c.id);
-            return;
-          }
+          if (handleCardSelectionClick(e, c.id)) return;
           openCardEditModal(c.id);
         },
       }, [
@@ -7949,11 +7944,28 @@
     }
 
     // ---------- Card multi-select + bulk merge ----------
+    // Called from any card renderer's onClick. Returns true when the click
+    // was consumed by selection logic — the caller must then return.
+    function handleCardSelectionClick(e, cardId) {
+      if (e.metaKey || e.ctrlKey || e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleCardSelection(cardId);
+        return true;
+      }
+      if (selectedCardIds.size > 0) {
+        e.stopPropagation();
+        toggleCardSelection(cardId);
+        return true;
+      }
+      return false;
+    }
     function toggleCardSelection(id) {
       if (selectedCardIds.has(id)) selectedCardIds.delete(id);
       else selectedCardIds.add(id);
-      // Patch only the affected cards' DOM nodes to avoid a full re-render.
-      document.querySelectorAll('.bank-card[data-card-id="' + id + '"]').forEach(n => {
+      // Patch every card-like node that references this id so all renderers
+      // (bank, plan, schedule, kanban, table) reflect the selection state.
+      document.querySelectorAll('[data-card-id="' + id + '"]').forEach(n => {
         n.classList.toggle('selected', selectedCardIds.has(id));
       });
       renderBulkActionBar();
@@ -7961,7 +7973,7 @@
     function clearCardSelection() {
       if (selectedCardIds.size === 0) return;
       selectedCardIds.clear();
-      document.querySelectorAll('.bank-card.selected').forEach(n => n.classList.remove('selected'));
+      document.querySelectorAll('[data-card-id].selected').forEach(n => n.classList.remove('selected'));
       renderBulkActionBar();
     }
     function renderBulkActionBar() {
@@ -9610,8 +9622,9 @@
       const ctx = contextOf(c, 'card');
       const ctxClass = ctx === 'work' ? ' ctx-work' : ctx === 'personal' ? ' ctx-personal' : '';
       const card = el('div', {
-        class: 'schedule-card' + (c.done_at ? ' done' : '') + (layout ? ' timeline' : '') + ctxClass,
+        class: 'schedule-card' + (c.done_at ? ' done' : '') + (layout ? ' timeline' : '') + ctxClass + (selectedCardIds.has(c.id) ? ' selected' : ''),
         dataset: { cardId: c.id },
+        title: 'Click to open · ⌘/Ctrl+click to select for bulk actions',
         style,
         onClick: (e) => {
           if (e.target.closest('.schedule-card-resize') || e.target.closest('.schedule-card-resize-top')) return;
@@ -9625,6 +9638,7 @@
             toggleCardDone(c.id);
             return;
           }
+          if (handleCardSelectionClick(e, c.id)) return;
           openCardEditModal(c.id);
         },
       }, [
@@ -9770,11 +9784,15 @@
     }
     function planCardEl(c) {
       const proj = c.project_id && c.project_id !== 'inbox' ? projectById(c.project_id) : null;
+      const isSel = selectedCardIds.has(c.id);
       const node = el('div', {
-        class: 'plan-card' + (c.done_at ? ' done' : ''),
+        class: 'plan-card' + (c.done_at ? ' done' : '') + (isSel ? ' selected' : ''),
+        dataset: { cardId: c.id },
+        title: 'Click to open · ⌘/Ctrl+click to select for bulk actions',
         style: proj ? { '--item-from': proj.accent.from, '--item-to': proj.accent.to } : {},
         onClick: (e) => {
           if (e.target.closest('.plan-card-check') || e.target.closest('.plan-card-remove')) return;
+          if (handleCardSelectionClick(e, c.id)) return;
           if (proj) { state.ui.active_view = proj.id; saveState(); expandedCardId = c.id; render(); }
           else { expandedCardId = c.id; render(); }
         },
@@ -12507,11 +12525,14 @@
     function cardEl(c, proj) {
       const isExpanded = expandedCardId === c.id;
       const isInfo = isInfoCard(c);
+      const isSel = selectedCardIds.has(c.id);
       const node = el('div', {
-        class: 'card' + (isExpanded ? ' expanded' : '') + (isInfo ? ' info-card' : ''),
+        class: 'card' + (isExpanded ? ' expanded' : '') + (isInfo ? ' info-card' : '') + (isSel ? ' selected' : ''),
         dataset: { cardId: c.id },
+        title: isExpanded ? undefined : 'Click to open · ⌘/Ctrl+click to select for bulk actions',
         onClick: (e) => {
           if (isExpanded) return;
+          if (handleCardSelectionClick(e, c.id)) return;
           e.stopPropagation();
           expandedCardId = c.id; expandedItemKey = null; render();
         },
