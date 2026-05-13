@@ -5555,8 +5555,23 @@
         archived: c.archived === true,
         recurrence: c.recurrence || null,
         recurrence_day: (typeof c.recurrence_day === 'number' && c.recurrence_day >= 0 && c.recurrence_day <= 6) ? c.recurrence_day : null,
+        // Multi-day weekly recurrence: array of 0-6 weekday indices. Back-fills
+        // from legacy single recurrence_day so old cards keep their behavior.
+        // Empty/missing falls back to recurrence_day at runtime.
+        recurrence_days: (() => {
+          const raw = c.recurrence_days;
+          if (Array.isArray(raw)) {
+            const cleaned = [...new Set(raw)].filter(n => typeof n === 'number' && n >= 0 && n <= 6).sort((a,b)=>a-b);
+            if (cleaned.length) return cleaned;
+          }
+          if (typeof c.recurrence_day === 'number' && c.recurrence_day >= 0 && c.recurrence_day <= 6) return [c.recurrence_day];
+          return null;
+        })(),
         recurrence_interval: typeof c.recurrence_interval === 'number' && c.recurrence_interval > 0 ? c.recurrence_interval : null,
         recurrence_unit: ['day','week','month','year'].includes(c.recurrence_unit) ? c.recurrence_unit : null,
+        // End date for the recurring series — YYYY-MM-DD. When the next
+        // occurrence would land past this, the card is archived permanently.
+        recurrence_until: (typeof c.recurrence_until === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(c.recurrence_until)) ? c.recurrence_until : null,
         auto_complete: c.auto_complete === true,
         last_missed_at: c.last_missed_at || null,
         missed_count: typeof c.missed_count === 'number' ? c.missed_count : 0,
@@ -6792,21 +6807,57 @@
       return null;
     }
 
-    function nextOccurrenceISO(fromISO, recurrence, recDay, custom) {
+    // Compute the next occurrence date for a recurring card.
+    //
+    //  fromISO    — base date (the card's current due, or today as fallback)
+    //  recurrence — 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'custom'
+    //  recDay     — legacy single weekday (0-6). Used when opts.days is empty.
+    //  opts.interval / opts.unit — custom-mode N-of-units.
+    //                              For 'weekly' recurrence, opts.interval is
+    //                              the number of weeks between cycles
+    //                              (default 1). Anchored to fromISO's week.
+    //  opts.days  — array of weekday indices (0-6) for multi-day weekly.
+    //  opts.until — YYYY-MM-DD end-of-series. When the computed next date
+    //               would land past it, this returns null — signaling
+    //               "series is over."
+    //
+    // Returns YYYY-MM-DD ISO date, or null when the series has ended.
+    function nextOccurrenceISO(fromISO, recurrence, recDay, opts) {
+      opts = opts || {};
+      const customInterval = Math.max(1, Number(opts.interval) || 1);
+      const customUnit = opts.unit || 'day';
+      const until = (typeof opts.until === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(opts.until)) ? opts.until : null;
+      const days = Array.isArray(opts.days) && opts.days.length
+        ? [...new Set(opts.days)].filter(n => typeof n === 'number' && n >= 0 && n <= 6).sort((a,b)=>a-b)
+        : (typeof recDay === 'number' ? [recDay] : []);
       const d = new Date(fromISO + 'T00:00:00');
       const today = new Date(todayISO() + 'T00:00:00');
-      const customInterval = Math.max(1, Number(custom && custom.interval) || 1);
-      const customUnit = (custom && custom.unit) || 'day';
+
+      // Multi-day weekly with optional N-week interval. Anchor = fromISO's week.
+      // Walk one day at a time and accept a day that matches the day-of-week set
+      // AND lives in an "on" cycle week (week-distance from anchor % interval == 0).
+      const advanceWeekly = () => {
+        if (days.length === 0) { d.setDate(d.getDate() + 7 * customInterval); return; }
+        const anchorMonday = new Date(d);
+        anchorMonday.setDate(anchorMonday.getDate() - ((anchorMonday.getDay() + 6) % 7));
+        const interval = recurrence === 'weekly' ? customInterval : 1;
+        let safety = 0;
+        do {
+          d.setDate(d.getDate() + 1);
+          if (++safety > 400) break;
+          if (!days.includes(d.getDay())) continue;
+          const candMonday = new Date(d);
+          candMonday.setDate(candMonday.getDate() - ((candMonday.getDay() + 6) % 7));
+          const weekDiff = Math.round((candMonday - anchorMonday) / (7 * 86400000));
+          if (weekDiff % interval === 0) break;
+        } while (true);
+      };
+
       const advance = () => {
         if (recurrence === 'daily') {
           d.setDate(d.getDate() + 1);
         } else if (recurrence === 'weekly') {
-          if (typeof recDay === 'number') {
-            const diff = (recDay - d.getDay() + 7) % 7 || 7;
-            d.setDate(d.getDate() + diff);
-          } else {
-            d.setDate(d.getDate() + 7);
-          }
+          advanceWeekly();
         } else if (recurrence === 'monthly') {
           d.setMonth(d.getMonth() + 1);
         } else if (recurrence === 'quarterly') {
@@ -6822,12 +6873,33 @@
       };
       advance();
       while (d < today) advance();
-      return d.toISOString().slice(0, 10);
+      const result = d.toISOString().slice(0, 10);
+      if (until && result > until) return null;
+      return result;
     }
 
     function rollRecurringCards() {
       const today = todayISO();
       let changed = false;
+      // Build the opts payload for nextOccurrenceISO from the card's fields.
+      const occOpts = (c) => ({
+        interval: c.recurrence_interval,
+        unit: c.recurrence_unit,
+        days: c.recurrence_days,
+        until: c.recurrence_until,
+      });
+      // End-of-series handler: next occurrence returned null because we'd land
+      // past recurrence_until. Drop recurrence so the card stops advancing and
+      // archive it — the series is over.
+      const endSeries = (c) => {
+        logActivity('card_done', 'Recurring series ended for "' + c.title + '"', {
+          project_id: c.project_id === 'inbox' ? null : c.project_id,
+          source_type: 'card', source_id: c.id, context: c.context,
+        });
+        c.recurrence = null;
+        c.archived = true;
+        if (!c.done_at) c.done_at = now();
+      };
       state.cards.forEach(c => {
         if (!c.recurrence) return;
         // Completed-then-day-rolled path: a recurring card was marked done
@@ -6835,7 +6907,9 @@
         // re-appears in the bank/schedule, fresh.
         if (c.archived && c.done_at && localDateOfISO(c.done_at) < today) {
           const baseISO = resolveDueISO(c.due) || today;
-          c.due = nextOccurrenceISO(baseISO, c.recurrence, c.recurrence_day, { interval: c.recurrence_interval, unit: c.recurrence_unit });
+          const next = nextOccurrenceISO(baseISO, c.recurrence, c.recurrence_day, occOpts(c));
+          if (next === null) { endSeries(c); changed = true; return; }
+          c.due = next;
           c.done_at = null;
           c.archived = false;
           c.scheduled_time = null;
@@ -6861,7 +6935,9 @@
           c.missed_count = (c.missed_count || 0) + 1;
           c.last_missed_at = dueISO;
         }
-        c.due = nextOccurrenceISO(dueISO, c.recurrence, c.recurrence_day, { interval: c.recurrence_interval, unit: c.recurrence_unit });
+        const next = nextOccurrenceISO(dueISO, c.recurrence, c.recurrence_day, occOpts(c));
+        if (next === null) { endSeries(c); changed = true; return; }
+        c.due = next;
         c.done_at = null;
         c.scheduled_time = null;
         resetSubtasksDone(c.subtasks);
@@ -7819,14 +7895,26 @@
       }
       if (c.recurrence) {
         const dayLabels = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+        const dayShort = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
         let recLabel;
-        if (c.recurrence === 'weekly' && typeof c.recurrence_day === 'number') {
-          recLabel = 'Weekly · ' + dayLabels[c.recurrence_day];
+        if (c.recurrence === 'weekly') {
+          // Prefer multi-day array; fall back to legacy single day.
+          const days = Array.isArray(c.recurrence_days) && c.recurrence_days.length
+            ? [...c.recurrence_days].sort((a,b)=>a-b)
+            : (typeof c.recurrence_day === 'number' ? [c.recurrence_day] : []);
+          const interval = (typeof c.recurrence_interval === 'number' && c.recurrence_interval > 1) ? c.recurrence_interval : 1;
+          const prefix = interval > 1 ? 'Every ' + interval + ' wks' : 'Weekly';
+          recLabel = days.length ? prefix + ' · ' + days.map(d => dayShort[d]).join(', ') : prefix;
         } else if (c.recurrence === 'custom' && c.recurrence_interval && c.recurrence_unit) {
           const n = c.recurrence_interval;
           recLabel = 'Every ' + n + ' ' + c.recurrence_unit + (n === 1 ? '' : 's');
         } else {
           recLabel = c.recurrence.charAt(0).toUpperCase() + c.recurrence.slice(1);
+        }
+        // Append end-of-series indicator when set.
+        if (c.recurrence_until && /^\d{4}-\d{2}-\d{2}$/.test(c.recurrence_until)) {
+          const [, m, d] = c.recurrence_until.match(/^\d{4}-(\d{2})-(\d{2})$/);
+          recLabel += ' · until ' + parseInt(m, 10) + '/' + parseInt(d, 10);
         }
         pills.push(el('span', { class: 'rec-pill' }, '↻ ' + recLabel));
       }
@@ -7923,9 +8011,20 @@
       const c = state.cards.find(x => x.id === cardId);
       if (!c) return;
       let title = c.title, notes = c.notes || '', due = c.due, context = c.context, recurrence = c.recurrence;
-      let recurrenceDay = typeof c.recurrence_day === 'number' ? c.recurrence_day : null;
+      // Multi-day weekly: array of weekday indices. Migration back-fills from
+      // legacy single recurrence_day, but old cards without either still work.
+      let recurrenceDays = Array.isArray(c.recurrence_days) && c.recurrence_days.length
+        ? [...c.recurrence_days]
+        : (typeof c.recurrence_day === 'number' ? [c.recurrence_day] : []);
+      // Weekly mode now also accepts an interval ("every N weeks"). Re-uses
+      // recurrence_interval — when recurrence === 'weekly' it means weeks
+      // between cycles; when 'custom' it pairs with recurrence_unit.
+      let weeklyInterval = (c.recurrence === 'weekly' && typeof c.recurrence_interval === 'number' && c.recurrence_interval > 0) ? c.recurrence_interval : 1;
       let recurrenceInterval = typeof c.recurrence_interval === 'number' && c.recurrence_interval > 0 ? c.recurrence_interval : 2;
       let recurrenceUnit = ['day','week','month','year'].includes(c.recurrence_unit) ? c.recurrence_unit : 'week';
+      // End-of-series date. When the next computed occurrence would land past
+      // this, the card gets archived permanently. Empty string = no end.
+      let recurrenceUntil = (typeof c.recurrence_until === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(c.recurrence_until)) ? c.recurrence_until : '';
       let duration = c.duration_minutes || '';
       let timeHHMM = extractTimeHHMM(c.scheduled_time);
       let autoComplete = !!c.auto_complete;
@@ -7983,10 +8082,14 @@
       });
       const recRow = el('div', { class: 'card-edit-row' });
       const dayRow = el('div', { class: 'card-edit-row', style: { marginTop: '6px' } });
+      const weeklyIntervalRow = el('div', { class: 'card-edit-row', style: { marginTop: '6px' } });
       const customRow = el('div', { class: 'card-edit-row', style: { marginTop: '6px' } });
+      const untilRow = el('div', { class: 'card-edit-row', style: { marginTop: '6px' } });
       const refreshSubRows = () => {
         dayRow.style.display = recurrence === 'weekly' ? '' : 'none';
+        weeklyIntervalRow.style.display = recurrence === 'weekly' ? '' : 'none';
         customRow.style.display = recurrence === 'custom' ? '' : 'none';
+        untilRow.style.display = recurrence ? '' : 'none';
       };
       const mkRec = (val, label) => {
         const b = el('button', { class: 'due-opt' + (recurrence === val ? ' selected' : ''), onClick: () => {
@@ -8004,19 +8107,35 @@
       recRow.appendChild(mkRec('weekly', 'weekly'));
       recRow.appendChild(mkRec('monthly', 'monthly'));
       recRow.appendChild(mkRec('custom', 'custom'));
+      // Multi-day weekly: each weekday button toggles its index in
+      // recurrenceDays. Order doesn't matter — nextOccurrenceISO sorts on use.
       const dayLabels = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
       dayRow.appendChild(el('span', { style: rowLabelStyle2 }, 'On'));
       dayLabels.forEach((lbl, idx) => {
         const b = el('button', {
-          class: 'due-opt' + (recurrenceDay === idx ? ' selected' : ''),
+          class: 'due-opt' + (recurrenceDays.includes(idx) ? ' selected' : ''),
           onClick: () => {
-            recurrenceDay = idx;
-            dayRow.querySelectorAll('.due-opt').forEach(x => x.classList.remove('selected'));
-            b.classList.add('selected');
+            const pos = recurrenceDays.indexOf(idx);
+            if (pos === -1) recurrenceDays.push(idx);
+            else recurrenceDays.splice(pos, 1);
+            b.classList.toggle('selected');
           },
         }, lbl);
         dayRow.appendChild(b);
       });
+      // Weekly "every N weeks" interval. interval=1 + multiple days = "Mon and
+      // Fri every week". interval=2 + [Wed] = "every other Wednesday".
+      weeklyIntervalRow.appendChild(el('span', { style: rowLabelStyle2 }, 'Every'));
+      const weeklyIntervalInput = el('input', {
+        type: 'number', min: '1', step: '1', value: String(weeklyInterval),
+        onInput: (e) => {
+          const v = parseInt(e.target.value, 10);
+          if (!isNaN(v) && v > 0) weeklyInterval = v;
+        },
+        style: { width: '60px', padding: '4px 6px', borderRadius: '6px', background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--text-secondary)', fontSize: '11px' },
+      });
+      weeklyIntervalRow.appendChild(weeklyIntervalInput);
+      weeklyIntervalRow.appendChild(el('span', { style: { fontSize: '11px', color: 'var(--text-tertiary)' } }, 'week(s)'));
       customRow.appendChild(el('span', { style: rowLabelStyle2 }, 'Every'));
       const intervalInput = el('input', {
         type: 'number', min: '1', step: '1', value: String(recurrenceInterval),
@@ -8042,6 +8161,20 @@
       customRow.appendChild(mkUnit('week', 'weeks'));
       customRow.appendChild(mkUnit('month', 'months'));
       customRow.appendChild(mkUnit('year', 'years'));
+      // End-of-series date. Blank = open-ended. Shown for any recurrence type.
+      untilRow.appendChild(el('span', { style: rowLabelStyle2 }, 'Until'));
+      const untilInput = el('input', {
+        type: 'date', value: recurrenceUntil,
+        onChange: (e) => { recurrenceUntil = e.target.value || ''; },
+        style: { padding: '4px 6px', borderRadius: '6px', background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--text-secondary)', fontSize: '11px' },
+      });
+      untilRow.appendChild(untilInput);
+      const untilClearBtn = el('button', {
+        class: 'due-opt',
+        onClick: () => { recurrenceUntil = ''; untilInput.value = ''; },
+        style: { fontSize: '11px' },
+      }, 'no end');
+      untilRow.appendChild(untilClearBtn);
       refreshSubRows();
       const timeInput = el('input', {
         type: 'time', step: 900, value: timeHHMM,
@@ -8074,11 +8207,24 @@
           // the existing schedule slot exactly.
           schedTime = c.scheduled_time;
         }
+        // Normalize the multi-day weekly array and keep recurrence_day in sync
+        // for back-compat (renderers that still read the singular field).
+        const cleanedDays = recurrence === 'weekly'
+          ? [...new Set(recurrenceDays)].filter(n => typeof n === 'number' && n >= 0 && n <= 6).sort((a,b)=>a-b)
+          : [];
+        const savedDay = recurrence === 'weekly' && cleanedDays.length ? cleanedDays[0] : null;
+        // Weekly mode re-uses recurrence_interval as "weeks between cycles".
+        // Custom mode still owns the field for its own meaning.
+        const savedInterval = recurrence === 'weekly'
+          ? (weeklyInterval > 1 ? weeklyInterval : null)
+          : (recurrence === 'custom' ? recurrenceInterval : null);
         updateCard(cardId, {
           title: title.trim(), notes: notes.trim(), due, context, recurrence,
-          recurrence_day: recurrence === 'weekly' ? recurrenceDay : null,
-          recurrence_interval: recurrence === 'custom' ? recurrenceInterval : null,
+          recurrence_day: savedDay,
+          recurrence_days: cleanedDays.length ? cleanedDays : null,
+          recurrence_interval: savedInterval,
           recurrence_unit: recurrence === 'custom' ? recurrenceUnit : null,
+          recurrence_until: recurrence && recurrenceUntil ? recurrenceUntil : null,
           duration_minutes: (dur != null && !isNaN(dur) && dur >= 0) ? dur : null,
           scheduled_time: schedTime,
           auto_complete: autoComplete,
@@ -8123,7 +8269,9 @@
         autoCompleteRow,
         recRow,
         dayRow,
+        weeklyIntervalRow,
         customRow,
+        untilRow,
         el('div', { class: 'modal-label', style: { marginTop: '10px' } }, 'Estimated duration (optional)'),
         durationInput,
       ];
@@ -13267,7 +13415,7 @@
               today_slot: null, today_position: 0, plan_date: null,
               context: proj.context || null,
               done_at: null, archived: false,
-              recurrence: null, recurrence_day: null, recurrence_interval: null, recurrence_unit: null,
+              recurrence: null, recurrence_day: null, recurrence_days: null, recurrence_interval: null, recurrence_unit: null, recurrence_until: null,
               missed_count: 0, last_missed_at: null,
               scheduled_time: null, duration_minutes: null,
               subtasks: (draft.subtasks || []).map(st => ({
@@ -14231,7 +14379,7 @@
               due: cardFields.scheduled_time.slice(0, 10),
               today_slot: null, today_position: 0, plan_date: null,
               done_at: null, archived: false,
-              recurrence: null, recurrence_day: null, recurrence_interval: null, recurrence_unit: null,
+              recurrence: null, recurrence_day: null, recurrence_days: null, recurrence_interval: null, recurrence_unit: null, recurrence_until: null,
               missed_count: 0, last_missed_at: null,
               subtasks: [],
               created_at: now(),
