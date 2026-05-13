@@ -1354,6 +1354,98 @@
     .bank-card-meta .attach-pill { padding: 1px 6px; border-radius: 4px; background: rgba(96, 165, 250, 0.12); color: #93c5fd; }
     html[data-theme="personal"] .bank-card-meta .attach-pill { background: rgba(37, 99, 235, 0.12); color: #1d4ed8; }
     html[data-theme="personal"] .bank-card-meta .rec-pill { background: rgba(124, 58, 237, 0.12); color: #6d28d9; }
+
+    /* Multi-select for bulk actions (e.g. merge) — applied to every
+       card-like renderer so users can mix bank, plan, schedule, and
+       project-board items in one selection. */
+    .bank-card.selected,
+    .plan-card.selected,
+    .schedule-card.selected,
+    .card.selected {
+      border-color: var(--accent-from) !important;
+      box-shadow: 0 0 0 1px var(--accent-from) inset, 0 4px 12px rgba(0, 0, 0, 0.25);
+    }
+    .bank-card.selected { background: var(--card-hover); }
+    .bank-card.selected:hover { transform: translateX(2px); }
+    #bulk-action-bar {
+      position: fixed;
+      bottom: 24px; left: 50%;
+      transform: translateX(-50%);
+      z-index: 90;
+      display: none;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px 8px 16px;
+      background: var(--surface-elev);
+      border: 1px solid var(--border-strong);
+      border-radius: 999px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+      font-size: 13px;
+      animation: pop-in 200ms var(--spring);
+    }
+    #bulk-action-bar .bulk-action-count {
+      color: var(--text-secondary);
+      font-weight: 500;
+      padding-right: 4px;
+    }
+    #bulk-action-bar .bulk-action-btn {
+      padding: 6px 12px; border-radius: 999px;
+      background: var(--overlay); border: 1px solid var(--border);
+      color: var(--text-primary); font-size: 12px; font-weight: 500;
+      transition: background 120ms;
+      cursor: pointer;
+    }
+    #bulk-action-bar .bulk-action-btn:hover { background: var(--overlay-strong); }
+    #bulk-action-bar .bulk-action-btn.primary {
+      background: linear-gradient(135deg, var(--accent-from), var(--accent-to));
+      border-color: transparent; color: white;
+    }
+    #bulk-action-bar .bulk-action-btn.primary:hover { filter: brightness(1.1); }
+    #bulk-action-bar .bulk-action-btn.disabled {
+      opacity: 0.4; cursor: not-allowed; pointer-events: none;
+    }
+    #bulk-action-bar .bulk-action-hint {
+      color: var(--text-tertiary); font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      padding: 0 4px;
+    }
+
+    /* Merge modal layout */
+    .merge-modal-body {
+      display: flex; flex-direction: column; gap: 4px;
+      max-height: 60vh; overflow-y: auto;
+      padding: 4px 2px;
+    }
+    .merge-section-title {
+      font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.04em;
+      color: var(--text-tertiary);
+      margin: 10px 0 2px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .merge-section-title:first-child { margin-top: 0; }
+    .merge-radio-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 8px; border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--text-primary);
+    }
+    .merge-radio-row:hover { background: var(--overlay); }
+    .merge-radio-row input { width: auto; margin: 0; }
+    .merge-radio-row .merge-val-from {
+      color: var(--text-tertiary); font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .merge-summary-line {
+      font-size: 12px; color: var(--text-secondary);
+      padding: 2px 8px;
+    }
+    .merge-hint {
+      font-size: 12px; color: var(--text-tertiary);
+      margin-bottom: 6px;
+    }
+
     /* Card links — chip list + inline add form */
     .card-links-wrap { display: flex; flex-direction: column; gap: 6px; }
     .card-links-list {
@@ -3663,6 +3755,7 @@
   </div>
 
   <footer id="snark-bar"></footer>
+  <div id="bulk-action-bar"></div>
   <div id="modals"></div>
 
   <script>
@@ -5226,6 +5319,9 @@
     let expandedCardId = null;
     let expandedItemKey = null;
     let openColumnPopoverCardId = null;
+    // Runtime-only multi-select for bulk task actions (merge, etc.).
+    // Not persisted; cleared on reload, Esc, or after a bulk action runs.
+    let selectedCardIds = new Set();
     let saveTimer = null;
     let snarkLine = pick(SNARK_LINES);
     let currentPlanDate = todayISO();
@@ -7081,6 +7177,7 @@
       renderLeftRail();
       renderMain();
       renderRightRail();
+      renderBulkActionBar();
     }
 
     // Single entry-point for switching views. Persists last-project-view
@@ -7763,10 +7860,15 @@
       });
     }
     function bankCardEl(c) {
+      const isSel = selectedCardIds.has(c.id);
       const node = el('div', {
-        class: 'bank-card' + (c.done_at ? ' done' : ''),
+        class: 'bank-card' + (c.done_at ? ' done' : '') + (isSel ? ' selected' : ''),
         dataset: { cardId: c.id },
-        onClick: () => openCardEditModal(c.id),
+        title: 'Click to open · ⌘/Ctrl+click to select for bulk actions',
+        onClick: (e) => {
+          if (handleCardSelectionClick(e, c.id)) return;
+          openCardEditModal(c.id);
+        },
       }, [
         el('div', {
           class: 'bank-card-check' + (c.done_at ? ' checked' : ''),
@@ -7839,6 +7941,324 @@
       }
       if (pills.length) body.appendChild(el('div', { class: 'bank-card-meta' }, pills));
       return node;
+    }
+
+    // ---------- Card multi-select + bulk merge ----------
+    // Called from any card renderer's onClick. Returns true when the click
+    // was consumed by selection logic — the caller must then return.
+    function handleCardSelectionClick(e, cardId) {
+      if (e.metaKey || e.ctrlKey || e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleCardSelection(cardId);
+        return true;
+      }
+      if (selectedCardIds.size > 0) {
+        e.stopPropagation();
+        toggleCardSelection(cardId);
+        return true;
+      }
+      return false;
+    }
+    function toggleCardSelection(id) {
+      if (selectedCardIds.has(id)) selectedCardIds.delete(id);
+      else selectedCardIds.add(id);
+      // Patch every card-like node that references this id so all renderers
+      // (bank, plan, schedule, kanban, table) reflect the selection state.
+      document.querySelectorAll('[data-card-id="' + id + '"]').forEach(n => {
+        n.classList.toggle('selected', selectedCardIds.has(id));
+      });
+      renderBulkActionBar();
+    }
+    function clearCardSelection() {
+      if (selectedCardIds.size === 0) return;
+      selectedCardIds.clear();
+      document.querySelectorAll('[data-card-id].selected').forEach(n => n.classList.remove('selected'));
+      renderBulkActionBar();
+    }
+    function renderBulkActionBar() {
+      const bar = document.getElementById('bulk-action-bar');
+      if (!bar) return;
+      clearNode(bar);
+      // Prune any selection entries pointing at cards that no longer exist.
+      const live = new Set(state.cards.map(c => c.id));
+      for (const id of Array.from(selectedCardIds)) {
+        if (!live.has(id)) selectedCardIds.delete(id);
+      }
+      const n = selectedCardIds.size;
+      if (n === 0) { bar.style.display = 'none'; return; }
+      bar.style.display = 'flex';
+      bar.appendChild(el('span', { class: 'bulk-action-count' },
+        n + ' task' + (n === 1 ? '' : 's') + ' selected'));
+      const canMerge = n >= 2;
+      bar.appendChild(el('button', {
+        class: 'bulk-action-btn primary' + (canMerge ? '' : ' disabled'),
+        title: canMerge ? 'Merge selected tasks' : 'Select at least 2 tasks to merge',
+        onClick: () => { if (canMerge) openMergeModal(); },
+      }, 'Merge tasks'));
+      bar.appendChild(el('button', {
+        class: 'bulk-action-btn',
+        title: 'Clear selection (Esc)',
+        onClick: () => clearCardSelection(),
+      }, 'Clear'));
+      bar.appendChild(el('span', { class: 'bulk-action-hint' }, '⌘/Ctrl+click to add'));
+    }
+
+    // Build a list of card fields where the selected cards' values differ.
+    // Each entry: { key, label, format } — only included when at least one
+    // selected card has a non-empty value AND values aren't all identical.
+    const MERGE_SCALAR_FIELDS = [
+      { key: 'title', label: 'Title' },
+      { key: 'due', label: 'Due', format: (v) => formatDueLabel(v) || (v || '—') },
+      { key: 'plan_date', label: 'Plan date', format: (v) => v || '—' },
+      { key: 'scheduled_time', label: 'Scheduled time', format: (v) => formatScheduledTimeLabel(v) || (v || '—') },
+      { key: 'reminder_at', label: 'Reminder', format: (v) => v || '—' },
+      { key: 'duration_minutes', label: 'Duration', format: (v) => v ? (v + ' min') : '—' },
+      { key: 'context', label: 'Context', format: (v) => v || '—' },
+      { key: 'recurrence', label: 'Recurrence', format: (v) => v || '—' },
+    ];
+
+    function openMergeModal() {
+      const ids = Array.from(selectedCardIds);
+      const cards = ids.map(id => state.cards.find(c => c.id === id)).filter(Boolean);
+      if (cards.length < 2) return;
+
+      let survivorId = cards[0].id;
+      // fieldChoices[key] = cardId whose value should win for this field.
+      const fieldChoices = Object.create(null);
+      let combineNotes = true;
+      // Track project/column as a unit; if any source has different (project_id, column_id)
+      // we offer to pick the location.
+      let locationChoice = survivorId;
+
+      const body = el('div', { class: 'merge-modal-body' });
+
+      function locFor(c) {
+        if (c.project_id === 'inbox' || !c.project_id) return 'Inbox';
+        const p = projectById(c.project_id);
+        if (!p) return c.project_id;
+        const col = (p.columns || []).find(x => x.id === c.column_id);
+        return p.name + (col ? ' · ' + col.title : '');
+      }
+
+      function rebuild() {
+        clearNode(body);
+        const survivor = cards.find(c => c.id === survivorId);
+        if (!survivor) return;
+
+        // Survivor picker
+        body.appendChild(el('div', { class: 'merge-section-title' }, 'Survivor (keeps id, position, history)'));
+        cards.forEach(c => {
+          body.appendChild(el('label', { class: 'merge-radio-row' }, [
+            el('input', {
+              type: 'radio', name: 'merge-survivor',
+              checked: c.id === survivorId,
+              onChange: () => {
+                survivorId = c.id;
+                // Default all field choices back to survivor.
+                for (const k in fieldChoices) delete fieldChoices[k];
+                locationChoice = c.id;
+                rebuild();
+              },
+            }),
+            el('span', {}, c.title || '(untitled)'),
+            el('span', { class: 'merge-val-from' }, '· ' + locFor(c)),
+          ]));
+        });
+
+        // Per-field reconcile rows (only fields whose values differ).
+        MERGE_SCALAR_FIELDS.forEach(f => {
+          const raws = cards.map(c => c[f.key]);
+          const norm = (v) => v == null ? '' : String(v);
+          const allSame = raws.every(r => norm(r) === norm(raws[0]));
+          if (allSame) return;
+          if (!(f.key in fieldChoices)) fieldChoices[f.key] = survivorId;
+          body.appendChild(el('div', { class: 'merge-section-title' }, f.label));
+          cards.forEach(c => {
+            const disp = f.format ? f.format(c[f.key]) : (norm(c[f.key]) || '—');
+            const isSurv = c.id === survivorId;
+            body.appendChild(el('label', { class: 'merge-radio-row' }, [
+              el('input', {
+                type: 'radio', name: 'merge-field-' + f.key,
+                checked: fieldChoices[f.key] === c.id,
+                onChange: () => { fieldChoices[f.key] = c.id; },
+              }),
+              el('span', {}, disp),
+              el('span', { class: 'merge-val-from' }, '· ' + (c.title || '(untitled)') + (isSurv ? ' (survivor)' : '')),
+            ]));
+          });
+        });
+
+        // Location (project_id + column_id) — treated as a unit.
+        const locs = cards.map(c => c.project_id + '|' + (c.column_id || ''));
+        if (!locs.every(l => l === locs[0])) {
+          body.appendChild(el('div', { class: 'merge-section-title' }, 'Location'));
+          cards.forEach(c => {
+            body.appendChild(el('label', { class: 'merge-radio-row' }, [
+              el('input', {
+                type: 'radio', name: 'merge-location',
+                checked: locationChoice === c.id,
+                onChange: () => { locationChoice = c.id; },
+              }),
+              el('span', {}, locFor(c)),
+              el('span', { class: 'merge-val-from' }, '· from ' + (c.title || '(untitled)')),
+            ]));
+          });
+        }
+
+        // Notes — combine vs. survivor-only
+        const noteCards = cards.filter(c => (c.notes || '').trim());
+        if (noteCards.length >= 1) {
+          const survHasNotes = (survivor.notes || '').trim();
+          const othersHaveNotes = noteCards.some(c => c.id !== survivorId);
+          if (othersHaveNotes || (noteCards.length >= 2)) {
+            body.appendChild(el('div', { class: 'merge-section-title' }, 'Notes'));
+            body.appendChild(el('label', { class: 'merge-radio-row' }, [
+              el('input', {
+                type: 'checkbox',
+                checked: combineNotes,
+                onChange: (e) => { combineNotes = e.target.checked; },
+              }),
+              el('span', {}, 'Combine notes from all tasks (' + noteCards.length + ' have notes)'),
+            ]));
+          } else if (!survHasNotes) {
+            // Only non-survivors have notes; default to combining so they're not lost.
+            combineNotes = true;
+          }
+        }
+
+        // Combined collections summary
+        const subCount = cards.reduce((n, c) => n + ((c.subtasks || []).length), 0);
+        const linkCount = cards.reduce((n, c) => n + ((c.links || []).length), 0);
+        const fileCount = cards.reduce((n, c) => n + filesForOwner('card', c.id).length, 0);
+        if (subCount || linkCount || fileCount) {
+          body.appendChild(el('div', { class: 'merge-section-title' }, 'Combined automatically'));
+          if (subCount) body.appendChild(el('div', { class: 'merge-summary-line' }, '• ' + subCount + ' subtask' + (subCount === 1 ? '' : 's')));
+          if (linkCount) body.appendChild(el('div', { class: 'merge-summary-line' }, '• ' + linkCount + ' link' + (linkCount === 1 ? '' : 's')));
+          if (fileCount) body.appendChild(el('div', { class: 'merge-summary-line' }, '• ' + fileCount + ' attachment' + (fileCount === 1 ? '' : 's')));
+        }
+      }
+
+      rebuild();
+
+      openModal([
+        el('h3', {}, 'Merge ' + cards.length + ' tasks'),
+        el('div', { class: 'merge-hint' },
+          'Pick which task survives and resolve any field differences. ' +
+          'Subtasks, links, and attachments are always combined.'),
+        body,
+        el('div', { class: 'modal-actions' }, [
+          el('button', { onClick: closeModal }, 'Cancel'),
+          el('button', {
+            class: 'primary',
+            onClick: () => {
+              const sourceIds = cards.map(c => c.id).filter(id => id !== survivorId);
+              mergeCards(survivorId, sourceIds, fieldChoices, combineNotes, locationChoice);
+              closeModal();
+            },
+          }, 'Merge ' + cards.length + ' tasks'),
+        ]),
+      ]);
+    }
+
+    function mergeCards(survivorId, sourceIds, fieldChoices, combineNotes, locationChoice) {
+      if (!sourceIds || sourceIds.length === 0) return;
+      const sourceSet = new Set(sourceIds);
+      setState(s => {
+        const survivor = s.cards.find(c => c.id === survivorId);
+        if (!survivor) return;
+        const allById = new Map(s.cards.map(c => [c.id, c]));
+
+        // Scalar field choices
+        for (const key in fieldChoices) {
+          const fromId = fieldChoices[key];
+          const from = allById.get(fromId);
+          if (!from) continue;
+          survivor[key] = from[key];
+          if (key === 'recurrence') {
+            survivor.recurrence_day = from.recurrence_day;
+            survivor.recurrence_interval = from.recurrence_interval;
+            survivor.recurrence_unit = from.recurrence_unit;
+          }
+        }
+
+        // Location (project + column). Recompute position so the survivor lands
+        // at the end of the chosen column (matches moveCardToColumn behavior).
+        if (locationChoice && locationChoice !== survivorId) {
+          const locSrc = allById.get(locationChoice);
+          if (locSrc) {
+            survivor.project_id = locSrc.project_id;
+            survivor.column_id = locSrc.column_id;
+            const peers = s.cards.filter(c =>
+              c.project_id === survivor.project_id &&
+              c.column_id === survivor.column_id &&
+              !c.archived &&
+              c.id !== survivor.id &&
+              !sourceSet.has(c.id));
+            survivor.position = peers.length;
+          }
+        }
+
+        // Notes
+        if (combineNotes) {
+          const parts = [survivor, ...sourceIds.map(id => allById.get(id)).filter(Boolean)]
+            .map(c => (c && c.notes ? c.notes.trim() : ''))
+            .filter(Boolean);
+          survivor.notes = parts.join('\n\n---\n\n');
+        }
+
+        // Subtasks — append with regenerated IDs so trees stay unique.
+        function reidSubtasks(tree) {
+          return (tree || []).map(st => ({
+            id: uid('st'),
+            title: st.title,
+            done: !!st.done,
+            subtasks: reidSubtasks(st.subtasks),
+          }));
+        }
+        survivor.subtasks = survivor.subtasks || [];
+        sourceIds.forEach(id => {
+          const src = allById.get(id);
+          if (src && src.subtasks && src.subtasks.length) {
+            survivor.subtasks.push(...reidSubtasks(src.subtasks));
+          }
+        });
+
+        // Links — concat (preserve order; survivor first, then sources)
+        const allLinks = [];
+        if (survivor.links && survivor.links.length) allLinks.push(...survivor.links);
+        sourceIds.forEach(id => {
+          const src = allById.get(id);
+          if (src && src.links && src.links.length) allLinks.push(...src.links);
+        });
+        if (allLinks.length) survivor.links = allLinks;
+
+        // Files — reassign owner from source cards to survivor.
+        s.files.forEach(f => {
+          if (f.owner_type === 'card' && sourceSet.has(f.owner_id)) {
+            f.owner_id = survivorId;
+          }
+        });
+
+        // Activity log entry
+        const total = sourceIds.length + 1;
+        logActivity('card_merged',
+          'Merged ' + total + ' tasks into "' + (survivor.title || '(untitled)') + '"',
+          {
+            project_id: survivor.project_id,
+            source_type: 'card',
+            source_id: survivor.id,
+            context: survivor.context || null,
+          });
+
+        // Remove source cards
+        s.cards = s.cards.filter(c => !sourceSet.has(c.id));
+      });
+
+      // Clean runtime refs that may point at deleted cards.
+      if (sourceSet.has(expandedCardId)) expandedCardId = null;
+      selectedCardIds.clear();
+      renderBulkActionBar();
     }
 
     function subtaskSectionEl(cardId) {
@@ -9204,8 +9624,9 @@
       const ctx = contextOf(c, 'card');
       const ctxClass = ctx === 'work' ? ' ctx-work' : ctx === 'personal' ? ' ctx-personal' : '';
       const card = el('div', {
-        class: 'schedule-card' + (c.done_at ? ' done' : '') + (layout ? ' timeline' : '') + ctxClass,
+        class: 'schedule-card' + (c.done_at ? ' done' : '') + (layout ? ' timeline' : '') + ctxClass + (selectedCardIds.has(c.id) ? ' selected' : ''),
         dataset: { cardId: c.id },
+        title: 'Click to open · ⌘/Ctrl+click to select for bulk actions',
         style,
         onClick: (e) => {
           if (e.target.closest('.schedule-card-resize') || e.target.closest('.schedule-card-resize-top')) return;
@@ -9219,6 +9640,7 @@
             toggleCardDone(c.id);
             return;
           }
+          if (handleCardSelectionClick(e, c.id)) return;
           openCardEditModal(c.id);
         },
       }, [
@@ -9364,11 +9786,15 @@
     }
     function planCardEl(c) {
       const proj = c.project_id && c.project_id !== 'inbox' ? projectById(c.project_id) : null;
+      const isSel = selectedCardIds.has(c.id);
       const node = el('div', {
-        class: 'plan-card' + (c.done_at ? ' done' : ''),
+        class: 'plan-card' + (c.done_at ? ' done' : '') + (isSel ? ' selected' : ''),
+        dataset: { cardId: c.id },
+        title: 'Click to open · ⌘/Ctrl+click to select for bulk actions',
         style: proj ? { '--item-from': proj.accent.from, '--item-to': proj.accent.to } : {},
         onClick: (e) => {
           if (e.target.closest('.plan-card-check') || e.target.closest('.plan-card-remove')) return;
+          if (handleCardSelectionClick(e, c.id)) return;
           if (proj) { state.ui.active_view = proj.id; saveState(); expandedCardId = c.id; render(); }
           else { expandedCardId = c.id; render(); }
         },
@@ -12101,11 +12527,14 @@
     function cardEl(c, proj) {
       const isExpanded = expandedCardId === c.id;
       const isInfo = isInfoCard(c);
+      const isSel = selectedCardIds.has(c.id);
       const node = el('div', {
-        class: 'card' + (isExpanded ? ' expanded' : '') + (isInfo ? ' info-card' : ''),
+        class: 'card' + (isExpanded ? ' expanded' : '') + (isInfo ? ' info-card' : '') + (isSel ? ' selected' : ''),
         dataset: { cardId: c.id },
+        title: isExpanded ? undefined : 'Click to open · ⌘/Ctrl+click to select for bulk actions',
         onClick: (e) => {
           if (isExpanded) return;
+          if (handleCardSelectionClick(e, c.id)) return;
           e.stopPropagation();
           expandedCardId = c.id; expandedItemKey = null; render();
         },
@@ -15393,6 +15822,7 @@
         if (e.key !== 'Escape') return;
         if (document.querySelector('.modal-backdrop')) { closeModal(); return; }
         if (openColumnPopoverCardId) { openColumnPopoverCardId = null; render(); return; }
+        if (selectedCardIds.size > 0) { clearCardSelection(); return; }
         if (expandedCardId || expandedItemKey) {
           expandedCardId = null; expandedItemKey = null; render();
         }
