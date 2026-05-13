@@ -10910,6 +10910,16 @@
     function deleteLink(id) {
       setState(s => { s.links = (s.links || []).filter(l => l.id !== id); });
     }
+    // Toggle the pinned flag — pinned links surface in a Pinned section at
+    // the top of the Links view regardless of category. Only state.links
+    // entries can be pinned; project-attached links stay grouped with their
+    // project.
+    function toggleLinkPin(id) {
+      setState(s => {
+        const l = (s.links || []).find(x => x.id === id);
+        if (l) { l.pinned = !l.pinned; l.updated_at = now(); }
+      });
+    }
 
     function linkTileEl(l) {
       const host = parseDomain(l.url);
@@ -10935,6 +10945,11 @@
           host ? el('div', { class: 'link-tile-host' }, host) : null,
         ]),
         el('div', { class: 'link-tile-actions' }, [
+          el('button', {
+            class: 'icon-btn small' + (l.pinned ? ' pinned' : ''),
+            title: l.pinned ? 'Unpin' : 'Pin to top',
+            onClick: (e) => { e.preventDefault(); e.stopPropagation(); toggleLinkPin(l.id); },
+          }, l.pinned ? '★' : '☆'),
           el('button', {
             class: 'icon-btn small',
             title: 'Edit',
@@ -11070,13 +11085,16 @@
         return;
       }
 
-      // Split project links out from stand-alones so both views can render
-      // them in the same default-collapsed bank-style sections.
+      // Split links three ways: pinned stand-alones first (sticky to the top),
+      // then per-project groups (default collapsed), then unpinned stand-alones.
       const projectGroups = {};
+      const pinnedLinks = [];
       const standaloneLinks = [];
       links.forEach(l => {
         if (l._projectLink) {
           (projectGroups[l._projectId] = projectGroups[l._projectId] || { project: { id: l._projectId, name: l._projectName, accent: l._projectAccent }, items: [] }).items.push(l);
+        } else if (l.pinned) {
+          pinnedLinks.push(l);
         } else {
           standaloneLinks.push(l);
         }
@@ -11088,6 +11106,28 @@
       const filtering = !!q;
 
       const wrap = el('div', { class: 'link-board' });
+
+      // Pinned section — always at the top, never collapsed. Renders as a
+      // labeled band of tiles (card mode) or a small table (table mode).
+      if (pinnedLinks.length) {
+        const pinnedSorted = pinnedLinks.slice().sort((a, b) => (a.title || a.url || '').localeCompare(b.title || b.url || ''));
+        const pinnedSection = el('section', { class: 'link-board-section' });
+        pinnedSection.appendChild(el('div', { class: 'link-board-section-head' }, [
+          el('span', { style: { fontSize: '13px' } }, '★'),
+          el('span', { class: 'link-board-section-title' }, 'Pinned'),
+          el('span', { class: 'link-board-section-count' }, pinnedSorted.length + ''),
+        ]));
+        if (viewMode === 'table') {
+          const tableWrap = el('div', {});
+          tableWrap.appendChild(renderLinksTable(pinnedSorted));
+          pinnedSection.appendChild(tableWrap);
+        } else {
+          const grid = el('div', { class: 'link-board-grid' });
+          pinnedSorted.forEach(l => grid.appendChild(linkTileEl(l)));
+          pinnedSection.appendChild(grid);
+        }
+        wrap.appendChild(pinnedSection);
+      }
 
       // Per-project sections — Bank-style, default-collapsed, search-aware.
       // Both card and table view share these; expanded body switches by mode.
@@ -11132,7 +11172,13 @@
       // Stand-alone links: table OR per-category card grid.
       if (viewMode === 'table') {
         if (standaloneLinks.length) {
-          wrap.appendChild(renderLinksTable(standaloneLinks));
+          // Wrap in a plain block div so the .links-table-wrap inside doesn't
+          // shrink-to-content under the flex column's auto margins (which
+          // otherwise centers it at ~half width — visible misalignment vs the
+          // full-width project headers above).
+          const tableWrap = el('div', {});
+          tableWrap.appendChild(renderLinksTable(standaloneLinks));
+          wrap.appendChild(tableWrap);
         }
       } else {
         const byCat = {};
@@ -11260,9 +11306,15 @@
             }, '✎'),
           ] : [
             el('button', {
+              class: 'icon-btn small' + (l.pinned ? ' pinned' : ''),
+              title: l.pinned ? 'Unpin' : 'Pin to top',
+              onClick: (e) => { e.stopPropagation(); toggleLinkPin(l.id); },
+            }, l.pinned ? '★' : '☆'),
+            el('button', {
               class: 'icon-btn small',
               title: 'Edit',
               onClick: (e) => { e.stopPropagation(); openLinkEditModal(l.id); },
+              style: { marginLeft: '4px' },
             }, '✎'),
             el('button', {
               class: 'icon-btn small danger',
@@ -11315,6 +11367,22 @@
       ctxRow.appendChild(ctxBtn('Work', 'work'));
       ctxRow.appendChild(ctxBtn('Personal', 'personal'));
 
+      // Pin toggle — pinned links float to the top of the Links view.
+      let pinned = !!init.pinned;
+      const pinCheckbox = el('input', {
+        type: 'checkbox',
+        onChange: (e) => { pinned = e.target.checked; },
+        style: { width: '16px', height: '16px', cursor: 'pointer' },
+      });
+      pinCheckbox.checked = pinned;
+      const pinRow = el('label', {
+        class: 'card-edit-row',
+        style: { marginTop: '6px', cursor: 'pointer', gap: '8px' },
+      }, [
+        pinCheckbox,
+        el('span', { style: { fontSize: '12px', color: 'var(--text-secondary)' } }, '★ Pin to top of Links'),
+      ]);
+
       const errEl = el('div', { style: { fontSize: '11px', color: '#ef4444', minHeight: '14px' } }, '');
 
       const save = () => {
@@ -11328,9 +11396,11 @@
             url,
             category: catInput.value,
             context: init.context,
+            pinned,
           });
         } else {
-          addLink({ title: titleInput.value, url, category: catInput.value, context: init.context });
+          const newId = addLink({ title: titleInput.value, url, category: catInput.value, context: init.context });
+          if (pinned && newId) updateLink(newId, { pinned: true });
         }
         closeModal();
       };
@@ -11349,6 +11419,7 @@
         catInput,
         datalist,
         ctxRow,
+        pinRow,
         errEl,
         el('div', { class: 'modal-actions' }, [
           existing ? el('button', {
