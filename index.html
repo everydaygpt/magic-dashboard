@@ -10953,12 +10953,79 @@
       return tile;
     }
 
+    // Gather project-level links (project.links[]) and synthesize them into
+    // the same shape as state.links so they can flow through the existing
+    // filter/search/sort plumbing. Marker fields _projectLink / _projectId
+    // let renderers distinguish them for edit-target purposes.
+    function synthProjectLinks() {
+      const out = [];
+      (state.projects || []).forEach(p => {
+        if (!Array.isArray(p.links)) return;
+        p.links.forEach((link, idx) => {
+          if (!link || !link.url) return;
+          if (!contextMatches(p.context)) return;
+          out.push({
+            id: 'proj:' + p.id + ':' + idx,
+            title: link.label || '',
+            url: link.url,
+            category: 'Project: ' + (p.name || 'Untitled'),
+            context: p.context || null,
+            updated_at: p.updated_at || p.created_at || null,
+            position: idx,
+            _projectLink: true,
+            _projectId: p.id,
+            _projectName: p.name,
+            _projectAccent: p.accent || null,
+          });
+        });
+      });
+      return out;
+    }
+
+    // Tile renderer for a project link. Mirrors linkTileEl visually but the
+    // edit pencil jumps to the project view (project links are edited there),
+    // and there's no delete — project links are removed from the project's
+    // own card editor, not from the cross-cutting Links board.
+    function projectLinkTileEl(l) {
+      const host = parseDomain(l.url);
+      const display = l.title || host || l.url;
+      const ctx = l.context;
+      const ctxClass = ctx === 'work' ? ' ctx-work' : ctx === 'personal' ? ' ctx-personal' : '';
+      return el('a', {
+        class: 'link-tile' + ctxClass,
+        href: l.url, target: '_blank', rel: 'noopener noreferrer',
+        title: l.url,
+      }, [
+        el('img', {
+          class: 'link-tile-favicon',
+          src: 'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(host || l.url) + '&sz=64',
+          alt: '', loading: 'lazy',
+          onError: (e) => { e.target.style.display = 'none'; },
+        }),
+        el('div', { class: 'link-tile-body' }, [
+          el('div', { class: 'link-tile-title' }, display),
+          host ? el('div', { class: 'link-tile-host' }, host) : null,
+        ]),
+        el('div', { class: 'link-tile-actions' }, [
+          el('button', {
+            class: 'icon-btn small',
+            title: 'Edit on project',
+            onClick: (e) => { e.preventDefault(); e.stopPropagation(); navigateTo(l._projectId); },
+          }, '✎'),
+        ]),
+      ]);
+    }
+
     function renderLinksView(header, body) {
       header.appendChild(el('div', { class: 'main-title' }, [
         el('span', { style: { fontSize: '22px' } }, '🔗'),
         el('span', {}, 'Links'),
       ]));
-      const allLinks = visibleLinks();
+      // Merge stand-alone links (state.links) with project-attached links
+      // (project.links[]) so both surface in the same view. Project links
+      // are read-only here — edit pencil jumps to the owning project.
+      const projectLinks = synthProjectLinks();
+      const allLinks = [...visibleLinks(), ...projectLinks];
       const q = linksFilterQuery.trim();
       const links = q ? allLinks.filter(l => linkMatchesQuery(l, q)) : allLinks;
       const cats = [...new Set(links.map(l => l.category))];
@@ -11008,16 +11075,66 @@
         return;
       }
 
-      // Card grid: group by category, sort categories alphabetically with "" (uncategorized) last
+      // Card grid: project links first (one collapsible section per project,
+      // mirroring the Bank's per-project task grouping), then stand-alone links
+      // grouped by category.
+      const projectGroups = {};
+      const standaloneLinks = [];
+      links.forEach(l => {
+        if (l._projectLink) {
+          (projectGroups[l._projectId] = projectGroups[l._projectId] || { project: { id: l._projectId, name: l._projectName, accent: l._projectAccent }, items: [] }).items.push(l);
+        } else {
+          standaloneLinks.push(l);
+        }
+      });
       const byCat = {};
-      links.forEach(l => { (byCat[l.category] = byCat[l.category] || []).push(l); });
+      standaloneLinks.forEach(l => { (byCat[l.category] = byCat[l.category] || []).push(l); });
       const sortedCats = Object.keys(byCat).sort((a, b) => {
         if (a === '' && b !== '') return 1;
         if (b === '' && a !== '') return -1;
         return a.toLowerCase().localeCompare(b.toLowerCase());
       });
+      const sortedProjectIds = Object.keys(projectGroups).sort((a, b) =>
+        (projectGroups[a].project.name || '').toLowerCase().localeCompare((projectGroups[b].project.name || '').toLowerCase())
+      );
 
       const wrap = el('div', { class: 'link-board' });
+
+      // Per-project sections — collapsible, mirroring Bank pattern.
+      sortedProjectIds.forEach(pid => {
+        const group = projectGroups[pid];
+        const items = group.items.slice().sort((a, b) => (a.position || 0) - (b.position || 0));
+        const sectionKey = 'link-board-project:' + pid;
+        const collapsed = isRailCollapsed(sectionKey);
+        const accent = group.project.accent;
+        const section = el('section', { class: 'link-board-section' + (collapsed ? ' collapsed' : '') });
+        section.appendChild(el('div', {
+          class: 'link-board-section-head collapsible',
+          onClick: (e) => {
+            if (e.target.closest('button')) return;
+            toggleRailSection(sectionKey);
+          },
+        }, [
+          el('span', { class: 'rail-heading-arrow' }, collapsed ? '▸' : '▾'),
+          accent ? el('span', { class: 'plan-card-dot', style: { '--item-from': accent.from, '--item-to': accent.to } }) : null,
+          el('span', { class: 'link-board-section-title' }, group.project.name || 'Untitled project'),
+          el('span', { class: 'link-board-section-count' }, items.length + ''),
+          el('div', { style: { flex: '1' } }),
+          el('button', {
+            class: 'text-btn',
+            title: 'Open project to edit links',
+            onClick: (e) => { e.stopPropagation(); navigateTo(pid); },
+          }, 'Open'),
+        ]));
+        if (!collapsed) {
+          const grid = el('div', { class: 'link-board-grid' });
+          items.forEach(l => grid.appendChild(projectLinkTileEl(l)));
+          section.appendChild(grid);
+        }
+        wrap.appendChild(section);
+      });
+
+      // Stand-alone category sections.
       sortedCats.forEach(cat => {
         const items = byCat[cat].slice().sort((a, b) => (a.position || 0) - (b.position || 0));
         const section = el('section', { class: 'link-board-section' });
@@ -11126,7 +11243,14 @@
           el('td', {
             style: { fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace' },
           }, l.updated_at ? new Date(l.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '—'),
-          el('td', { style: { textAlign: 'right' } }, [
+          el('td', { style: { textAlign: 'right' } }, l._projectLink ? [
+            // Project link — edit happens on the project itself, no delete here.
+            el('button', {
+              class: 'icon-btn small',
+              title: 'Edit on project',
+              onClick: (e) => { e.stopPropagation(); navigateTo(l._projectId); },
+            }, '✎'),
+          ] : [
             el('button', {
               class: 'icon-btn small',
               title: 'Edit',
