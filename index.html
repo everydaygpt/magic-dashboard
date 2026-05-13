@@ -7203,7 +7203,7 @@
         mkTab('ideas', 'Ideas', '💡', { secondary: true, count: visibleIdeas().length }),
         mkTab('goals', 'Goals', '🎯', { secondary: true, count: visibleGoals().length }),
         mkTab('books', 'Books', '📚', { secondary: true, count: (state.books || []).length }),
-        mkTab('links', 'Links', '🔗', { secondary: true, count: visibleLinks().length }),
+        mkTab('links', 'Links', '🔗', { secondary: true, count: visibleLinks().length + synthProjectLinks().length }),
         mkTab('activity', 'Activity', '📋', { secondary: true, count: visibleActivity().length }),
         mkTab('done', 'Done', '✓', { secondary: true, count: visibleArchivedCards().length }),
       ]);
@@ -11100,38 +11100,41 @@
 
       const wrap = el('div', { class: 'link-board' });
 
-      // Per-project sections — collapsible, mirroring Bank pattern.
+      // Per-project sections — Bank-style: default to collapsed, auto-expand
+      // when the user is searching so matches stay visible. State lives in
+      // state.ui.links_expanded, mirroring state.ui.bank_expanded.
+      const linksExpanded = state.ui.links_expanded || {};
+      const filtering = !!q;
       sortedProjectIds.forEach(pid => {
         const group = projectGroups[pid];
         const items = group.items.slice().sort((a, b) => (a.position || 0) - (b.position || 0));
-        const sectionKey = 'link-board-project:' + pid;
-        const collapsed = isRailCollapsed(sectionKey);
-        const accent = group.project.accent;
-        const section = el('section', { class: 'link-board-section' + (collapsed ? ' collapsed' : '') });
-        section.appendChild(el('div', {
-          class: 'link-board-section-head collapsible',
-          onClick: (e) => {
-            if (e.target.closest('button')) return;
-            toggleRailSection(sectionKey);
+        const isExpanded = filtering || linksExpanded[pid] === true;
+        const accent = group.project.accent || { from: '#7c3aed', to: '#ec4899' };
+        const header = el('button', {
+          class: 'bank-section-header' + (isExpanded ? ' expanded' : ''),
+          title: isExpanded ? 'Collapse' : 'Expand',
+          onClick: () => {
+            if (filtering) return;
+            setState(s => {
+              s.ui.links_expanded = s.ui.links_expanded || {};
+              s.ui.links_expanded[pid] = !s.ui.links_expanded[pid];
+            });
           },
         }, [
-          el('span', { class: 'rail-heading-arrow' }, collapsed ? '▸' : '▾'),
-          accent ? el('span', { class: 'plan-card-dot', style: { '--item-from': accent.from, '--item-to': accent.to } }) : null,
-          el('span', { class: 'link-board-section-title' }, group.project.name || 'Untitled project'),
-          el('span', { class: 'link-board-section-count' }, items.length + ''),
-          el('div', { style: { flex: '1' } }),
-          el('button', {
-            class: 'text-btn',
-            title: 'Open project to edit links',
-            onClick: (e) => { e.stopPropagation(); navigateTo(pid); },
-          }, 'Open'),
-        ]));
-        if (!collapsed) {
-          const grid = el('div', { class: 'link-board-grid' });
+          el('span', { class: 'bank-section-chevron' }, isExpanded ? '▾' : '▸'),
+          el('span', {
+            class: 'bank-section-dot',
+            style: { background: 'linear-gradient(135deg, ' + accent.from + ', ' + accent.to + ')' },
+          }),
+          el('span', { class: 'bank-section-name' }, group.project.name || 'Untitled project'),
+          el('span', { class: 'bank-section-count' }, String(items.length)),
+        ]);
+        wrap.appendChild(header);
+        if (isExpanded) {
+          const grid = el('div', { class: 'link-board-grid', style: { marginBottom: '14px' } });
           items.forEach(l => grid.appendChild(projectLinkTileEl(l)));
-          section.appendChild(grid);
+          wrap.appendChild(grid);
         }
-        wrap.appendChild(section);
       });
 
       // Stand-alone category sections.
