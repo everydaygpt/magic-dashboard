@@ -11070,14 +11070,8 @@
         return;
       }
 
-      if (viewMode === 'table') {
-        body.appendChild(renderLinksTable(links));
-        return;
-      }
-
-      // Card grid: project links first (one collapsible section per project,
-      // mirroring the Bank's per-project task grouping), then stand-alone links
-      // grouped by category.
+      // Split project links out from stand-alones so both views can render
+      // them in the same default-collapsed bank-style sections.
       const projectGroups = {};
       const standaloneLinks = [];
       links.forEach(l => {
@@ -11087,24 +11081,16 @@
           standaloneLinks.push(l);
         }
       });
-      const byCat = {};
-      standaloneLinks.forEach(l => { (byCat[l.category] = byCat[l.category] || []).push(l); });
-      const sortedCats = Object.keys(byCat).sort((a, b) => {
-        if (a === '' && b !== '') return 1;
-        if (b === '' && a !== '') return -1;
-        return a.toLowerCase().localeCompare(b.toLowerCase());
-      });
       const sortedProjectIds = Object.keys(projectGroups).sort((a, b) =>
         (projectGroups[a].project.name || '').toLowerCase().localeCompare((projectGroups[b].project.name || '').toLowerCase())
       );
+      const linksExpanded = state.ui.links_expanded || {};
+      const filtering = !!q;
 
       const wrap = el('div', { class: 'link-board' });
 
-      // Per-project sections — Bank-style: default to collapsed, auto-expand
-      // when the user is searching so matches stay visible. State lives in
-      // state.ui.links_expanded, mirroring state.ui.bank_expanded.
-      const linksExpanded = state.ui.links_expanded || {};
-      const filtering = !!q;
+      // Per-project sections — Bank-style, default-collapsed, search-aware.
+      // Both card and table view share these; expanded body switches by mode.
       sortedProjectIds.forEach(pid => {
         const group = projectGroups[pid];
         const items = group.items.slice().sort((a, b) => (a.position || 0) - (b.position || 0));
@@ -11131,31 +11117,50 @@
         ]);
         wrap.appendChild(header);
         if (isExpanded) {
-          const grid = el('div', { class: 'link-board-grid', style: { marginBottom: '14px' } });
-          items.forEach(l => grid.appendChild(projectLinkTileEl(l)));
-          wrap.appendChild(grid);
+          if (viewMode === 'table') {
+            const tableWrap = el('div', { style: { marginBottom: '14px' } });
+            tableWrap.appendChild(renderLinksTable(items));
+            wrap.appendChild(tableWrap);
+          } else {
+            const grid = el('div', { class: 'link-board-grid', style: { marginBottom: '14px' } });
+            items.forEach(l => grid.appendChild(projectLinkTileEl(l)));
+            wrap.appendChild(grid);
+          }
         }
       });
 
-      // Stand-alone category sections.
-      sortedCats.forEach(cat => {
-        const items = byCat[cat].slice().sort((a, b) => (a.position || 0) - (b.position || 0));
-        const section = el('section', { class: 'link-board-section' });
-        section.appendChild(el('div', { class: 'link-board-section-head' }, [
-          el('span', { class: 'link-board-section-title' }, cat || 'Uncategorized'),
-          el('span', { class: 'link-board-section-count' }, items.length + ''),
-          el('div', { style: { flex: '1' } }),
-          el('button', {
-            class: 'text-btn',
-            title: 'Add a link to this category',
-            onClick: () => openLinkEditModal(null, { category: cat }),
-          }, '+'),
-        ]));
-        const grid = el('div', { class: 'link-board-grid' });
-        items.forEach(l => grid.appendChild(linkTileEl(l)));
-        section.appendChild(grid);
-        wrap.appendChild(section);
-      });
+      // Stand-alone links: table OR per-category card grid.
+      if (viewMode === 'table') {
+        if (standaloneLinks.length) {
+          wrap.appendChild(renderLinksTable(standaloneLinks));
+        }
+      } else {
+        const byCat = {};
+        standaloneLinks.forEach(l => { (byCat[l.category] = byCat[l.category] || []).push(l); });
+        const sortedCats = Object.keys(byCat).sort((a, b) => {
+          if (a === '' && b !== '') return 1;
+          if (b === '' && a !== '') return -1;
+          return a.toLowerCase().localeCompare(b.toLowerCase());
+        });
+        sortedCats.forEach(cat => {
+          const items = byCat[cat].slice().sort((a, b) => (a.position || 0) - (b.position || 0));
+          const section = el('section', { class: 'link-board-section' });
+          section.appendChild(el('div', { class: 'link-board-section-head' }, [
+            el('span', { class: 'link-board-section-title' }, cat || 'Uncategorized'),
+            el('span', { class: 'link-board-section-count' }, items.length + ''),
+            el('div', { style: { flex: '1' } }),
+            el('button', {
+              class: 'text-btn',
+              title: 'Add a link to this category',
+              onClick: () => openLinkEditModal(null, { category: cat }),
+            }, '+'),
+          ]));
+          const grid = el('div', { class: 'link-board-grid' });
+          items.forEach(l => grid.appendChild(linkTileEl(l)));
+          section.appendChild(grid);
+          wrap.appendChild(section);
+        });
+      }
       body.appendChild(wrap);
     }
 
