@@ -1608,7 +1608,7 @@
     .project-chip.clickable { transition: transform 120ms var(--ease), box-shadow 120ms var(--ease); }
     .project-chip.clickable:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(124, 58, 237, 0.25); }
 
-    .card.expanded { cursor: default; background: var(--surface-elev); padding: 14px; }
+    .card.expanded { cursor: grab; background: var(--surface-elev); padding: 14px; }
     .card.expanded:hover { transform: none; }
     .card-edit-title {
       font-weight: 500; font-size: 14px; color: var(--text-primary); width: 100%;
@@ -12102,6 +12102,12 @@
             delayOnTouchOnly: true,
             touchStartThreshold: 5,
             fallbackOnBody: true,
+            // Let mousedown on form controls work normally (focus inputs, click
+            // buttons). Drag is initiated by mousedown on any other part of
+            // the card — so an expanded card is still draggable from its
+            // padding/gaps between rows.
+            filter: 'input, textarea, button, select',
+            preventOnFilter: false,
             onEnd: handleCardDrop,
           });
         }
