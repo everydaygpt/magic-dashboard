@@ -3931,26 +3931,37 @@
       const es = state.ui.email_source;
       const cat = (es.category_name || 'Dashboard').replace(/'/g, "''");
       const token = await inboxGetToken();
-      // Pull tagged + flagged in a single query. Graph rejects $orderby with
-      // some flag-status filters, so client-side sort by receivedDateTime.
-      const filter = "categories/any(c: c eq '" + cat + "') or flag/flagStatus eq 'flagged'";
-      const url = 'https://graph.microsoft.com/v1.0/me/messages'
-        + '?$filter=' + encodeURIComponent(filter)
-        + '&$top=100'
+      // Two parallel queries: Graph drops the flag-status half when a lambda
+      // (categories/any) and a non-lambda predicate are combined with `or`,
+      // so mobile-flagged messages never come back. Merge by id client-side.
+      const base = 'https://graph.microsoft.com/v1.0/me/messages'
+        + '?$top=100'
         + '&$select=id,subject,bodyPreview,from,toRecipients,receivedDateTime,categories,flag,webLink';
-      const res = await fetch(url, { headers: { 'Authorization': 'Bearer ' + token } });
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error('Graph ' + res.status + ': ' + t.slice(0, 240));
-      }
-      const data = await res.json();
+      const taggedUrl = base + '&$filter=' + encodeURIComponent("categories/any(c: c eq '" + cat + "')");
+      const flaggedUrl = base + '&$filter=' + encodeURIComponent("flag/flagStatus eq 'flagged'");
+      const headers = { 'Authorization': 'Bearer ' + token };
+      const fetchMsgs = async (url, label) => {
+        const res = await fetch(url, { headers });
+        if (!res.ok) {
+          const t = await res.text();
+          throw new Error('Graph ' + res.status + ' (' + label + '): ' + t.slice(0, 220));
+        }
+        const data = await res.json();
+        return data.value || [];
+      };
+      const [tagged, flagged] = await Promise.all([
+        fetchMsgs(taggedUrl, 'tagged'),
+        fetchMsgs(flaggedUrl, 'flagged'),
+      ]);
       setState(s => { s.ui.email_source.last_synced_at = now(); });
-      const messages = (data.value || []).slice().sort((a, b) => {
+      const byId = new Map();
+      for (const m of tagged) byId.set(m.id, m);
+      for (const m of flagged) byId.set(m.id, m);
+      return Array.from(byId.values()).sort((a, b) => {
         const ad = a.receivedDateTime || '';
         const bd = b.receivedDateTime || '';
         return bd.localeCompare(ad);
       });
-      return messages;
     }
     function inboxSourceBadges(msg) {
       const cat = (state.ui.email_source && state.ui.email_source.category_name) || 'Dashboard';
