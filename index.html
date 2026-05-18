@@ -8909,12 +8909,20 @@
         for (let i = 0; i < 3; i++) top3.appendChild(top3SlotEl(priorities[i], i));
         top3Block.appendChild(top3);
       }
-      // Hourly schedule (5 AM - midnight)
+      // Hourly schedule (5 AM - midnight by default). Expand earlier when a
+      // scheduled card lands before 5 AM (e.g., midnight 'Camping' reminder)
+      // — otherwise the card counts in the header but never renders, because
+      // the loop has no row for that hour. Also expand if it's currently
+      // pre-dawn on Today so the 'now' indicator is visible.
       const schedule = el('div', { class: 'schedule' });
       const scheduled = scheduledOnDate(currentPlanDate);
       const nowHour = isToday ? new Date().getHours() : -1;
       const scheduleLayout = computeScheduleLayout(scheduled);
-      for (let h = 5; h <= 23; h++) {
+      const startHour = scheduled.reduce((min, c) => {
+        const h = hourOfScheduled(c);
+        return (typeof h === 'number' && h >= 0 && h < min) ? h : min;
+      }, (isToday && nowHour >= 0 && nowHour < 5) ? nowHour : 5);
+      for (let h = startHour; h <= 23; h++) {
         const row = el('div', { class: 'schedule-row' + (h === nowHour ? ' now' : '') });
         const label = new Date(2000, 0, 1, h).toLocaleTimeString(undefined, { hour: 'numeric' });
         row.appendChild(el('div', { class: 'schedule-hour' }, label));
