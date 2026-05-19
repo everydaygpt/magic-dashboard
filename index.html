@@ -3931,14 +3931,17 @@
       const es = state.ui.email_source;
       const cat = (es.category_name || 'Dashboard').replace(/'/g, "''");
       const token = await inboxGetToken();
-      // Two parallel queries: Graph drops the flag-status half when a lambda
-      // (categories/any) and a non-lambda predicate are combined with `or`,
-      // so mobile-flagged messages never come back. Merge by id client-side.
+      // Two queries:
+      //   1) Tagged — API-filtered by category. Reliable.
+      //   2) Recent — top 100 by date, NO filter. We detect flag/flagStatus
+      //      client-side. Graph's `flag/flagStatus eq 'flagged'` filter has
+      //      been silently returning empty results for mobile-set flags, so
+      //      a broad pull + local detect is the reliable path.
       const base = 'https://graph.microsoft.com/v1.0/me/messages'
         + '?$top=100'
         + '&$select=id,subject,bodyPreview,from,toRecipients,receivedDateTime,categories,flag,webLink';
       const taggedUrl = base + '&$filter=' + encodeURIComponent("categories/any(c: c eq '" + cat + "')");
-      const flaggedUrl = base + '&$filter=' + encodeURIComponent("flag/flagStatus eq 'flagged'");
+      const recentUrl = base + '&$orderby=' + encodeURIComponent('receivedDateTime desc');
       const headers = { 'Authorization': 'Bearer ' + token };
       const fetchMsgs = async (url, label) => {
         const res = await fetch(url, { headers });
@@ -3949,10 +3952,12 @@
         const data = await res.json();
         return data.value || [];
       };
-      const [tagged, flagged] = await Promise.all([
+      const [tagged, recent] = await Promise.all([
         fetchMsgs(taggedUrl, 'tagged'),
-        fetchMsgs(flaggedUrl, 'flagged'),
+        fetchMsgs(recentUrl, 'recent'),
       ]);
+      const flagged = recent.filter(m => m.flag && m.flag.flagStatus === 'flagged');
+      window._inboxDebug = { tagged: tagged.length, recent: recent.length, flagged: flagged.length, at: now() };
       setState(s => { s.ui.email_source.last_synced_at = now(); });
       const byId = new Map();
       for (const m of tagged) byId.set(m.id, m);
